@@ -1,0 +1,6 @@
+{
+  "name": "360Capture",
+  "description": "Pro-technical 360 panoramic photography capture, stitching, and interactive viewing app",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
