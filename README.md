@@ -1,22 +1,62 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# 360Capture
 
-# Run and deploy your AI Studio app
+Aplicación Android nativa (Kotlin + Jetpack Compose) para capturar panoramas 360° con la cámara del celular.
 
-This contains everything you need to run your app locally.
+## Cómo funciona
 
-View your app in AI Studio: https://ai.studio/apps/2de44d37-31af-46d3-b7dc-e7ed36fa3914
+1. **Captura automática**: el usuario presiona el botón y gira lentamente sobre sí mismo. La app usa los sensores de orientación (rotation vector) para detectar la rotación y dispara automáticamente 10 fotos, una cada 36°.
+2. **Stitching**: las fotos se unen con OpenCV (detección de puntos clave ORB, homografías RANSAC y fusión por proyección). Si no se pueden emparejar características, se usa una proyección cilíndrica determinista guiada por los ángulos del sensor.
+3. **Visor 360°**: el resultado se proyecta en una esfera equirectangular (OpenGL ES 2.0). El usuario mueve la vista arrastrando con el dedo o girando el dispositivo (con el modo sensor activo).
+4. **Galería**: los panoramas se guardan en el almacenamiento interno de la app y pueden verse, compartirse o borrarse.
 
-## Run Locally
+## Tecnologías
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+- Kotlin + Jetpack Compose (Material 3)
+- CameraX (preview + captura)
+- OpenCV 4.10.0 (`org.opencv:opencv`) — features2d, calib3d, imgproc
+- OpenGL ES 2.0 para el visor de esfera 360°
+- Sensores: rotation vector / acelerómetro (azimuth desenrollado para rotación continua)
 
+## Estructura
 
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
-7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+```
+app/src/main/java/com/example/
+├── camera/          # CameraController (CameraX bind + captura)
+├── sensor/          # OrientationSensorManager (azimuth/pitch/roll)
+├── stitching/       # FeatureStitcher, CylindricalStitcher, PanoramaStitcher, ImageUtils
+├── viewer/          # Visor equirectangular OpenGL
+├── data/            # PanoramaRepository (persistencia en filesDir)
+├── model/           # Modelos
+└── ui/              # ViewModel + pantallas (Capture, Processing, Viewer, Gallery)
+```
+
+## Requisitos
+
+- Android Studio (AGP 9.x, compileSdk 36)
+- Mínimo Android 7.0 (API 24)
+- Teléfono con cámara trasera y giroscopio (recomendado para el modo sensor)
+
+## Build
+
+```bash
+./gradlew :app:assembleDebug
+```
+
+El APK está firmado con el keystore de depuración incluido (`debug.keystore`). No requiere `.env` ni credenciales.
+
+## Uso
+
+1. Acepta el permiso de cámara.
+2. Alinea el horizonte (guía en pantalla) y presiona el botón de captura.
+3. Gira lentamente un giro completo. La app dispara una foto cada ~36°.
+4. Cuando complete las 10 fotos, espera el procesamiento (stitching).
+5. Explora el panorama arrastrando o girando el dispositivo.
+6. "Guardar en Galería" lo conserva en la galería de la app.
+
+Modo manual: desactiva el interruptor **AUTO** y toca el obturador para cada foto.
+
+## Limitaciones del MVP
+
+- El stitching por features asume rotación alrededor del eje vertical con poca inclinación.
+- La costura entre la primera y la última foto puede ser visible (sin cierre perfecto del bucle 360°).
+- Exposición/ISO se aplican de forma básica a la captura (compensación AE e ISO fijo).

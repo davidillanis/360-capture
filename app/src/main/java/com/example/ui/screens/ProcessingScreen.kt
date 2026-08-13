@@ -77,6 +77,7 @@ fun ProcessingScreen(
     engine: StitchingEngine = StitchingEngine.OPENCV,
     totalImages: Int = 12,
     currentStepText: String = "Processing 12 images with OpenCV engine",
+    sliceThumbnails: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     // Ambient Glow Pulse animation
@@ -122,9 +123,9 @@ fun ProcessingScreen(
         label = "scanlineX"
     )
 
-    val thumb1Url = "https://lh3.googleusercontent.com/aida-public/AB6AXuAPnEFjo_7ay_H66Lh07zH0c-JAwJUlmAJuZIDNbSryStp73l1kFhp_HN--jIZ5g-VykgGtrHUM4x61QgpvF2RPTrAT7TPDVJBM3Cg5tNtHg9VCZsLe62i5PSOWMiwcVW-l7vyJjqj-4HCkS-r74YqIjaEtrsL02I7ZanDvUCCxW7xWVM3YDAyUIo-qfxQXhkkaw_5FAUxaSZxls3sxemPt6KX7Ktl9YQcOugmNkhrds80Hn0Ms9kf"
-    val thumb2Url = "https://lh3.googleusercontent.com/aida-public/AB6AXuB0l18qKToqkvDurpmgfyb7Uoq5_LaFjQabdS6ZKN1TDeYVENlDXwJedWf21R5gJXgIUew3wGYDUGX7qDFDSnFwdiUddYD10qvYAGN_4-m5Ae1grpBGXVMfob4nKxJ7Nb0jhRzZarGO6ypxB-Q6Stm6xffHmuihixGuflyD-U0yoUEbwE_EIKtgNxTocnOqHaN47a83gzxaPNUfgBlZSrb0CUKjc0wER4itUARFv2QafraVpaMT2rMZ"
-    val thumb3Url = "https://lh3.googleusercontent.com/aida-public/AB6AXuCLwBTXD9cI_k1LTgOJzD9_CO2QAnYzG_l075vUs5jVH-gvc2DdRdIqFP-GAOOPF1xwR0f8BBZjOhu-Ak2p2cdYTbyTpvsDWBtm_zKfaKoU6KoJ9NINVZSEf0Ps2shW_K3mGxKhSxfUskM-1L2top-IMQBbIBeo5Ap6JevPiIvcwaihqxMcNNvYJ2AkAeV9ZtcApN5ds4-NdAXjrzVgfSUD6BVHwxStaTP_Qe3BPIyOsbMpQ9UJgKll"
+    val thumb1Url = sliceThumbnails.getOrNull(0) ?: ""
+    val thumb2Url = sliceThumbnails.getOrNull(1) ?: ""
+    val thumb3Url = sliceThumbnails.getOrNull(2) ?: ""
 
     val grayscaleMatrix = remember {
         ColorMatrix().apply { setToSaturation(0f) }

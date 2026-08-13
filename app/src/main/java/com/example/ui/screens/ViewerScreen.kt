@@ -1,18 +1,9 @@
 package com.example.ui.screens
 
 import android.content.Intent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +24,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Swipe
+import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.SnackbarHost
@@ -40,7 +32,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -52,30 +43,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import androidx.core.content.FileProvider
 import com.example.ui.components.ImmersiveAtmosphereBackground
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.GlassBackground
 import com.example.ui.theme.GlassBorder
 import com.example.ui.theme.ImmersiveDeepPurple
 import com.example.ui.theme.ImmersiveLilac
-import com.example.ui.theme.ImmersiveLilacGlow
 import com.example.ui.theme.InverseSurface
 import com.example.ui.theme.Secondary
 import com.example.ui.theme.Typography
+import com.example.viewer.EquirectangularViewer
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun ViewerScreen(
-    panoramaUrl: String,
+    panoramaPath: String?,
     deviceAzimuth: Float,
     devicePitch: Float,
     onBackClick: () -> Unit,
@@ -86,58 +74,23 @@ fun ViewerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    var sensorEnabled by remember { mutableStateOf(true) }
 
-    // Interactive 360 Pan & Zoom State
-    var panOffsetX by remember { mutableFloatStateOf(0f) }
-    var panOffsetY by remember { mutableFloatStateOf(0f) }
-    var zoomScale by remember { mutableFloatStateOf(1f) }
-    var hasUserInteracted by remember { mutableStateOf(false) }
-
-    // Swipe Hint Pulse Animation
-    val infiniteTransition = rememberInfiniteTransition(label = "dragPulse")
-    val hintAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "hintAlpha"
-    )
+    val panoramaFile = panoramaPath?.let { File(it) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(BackgroundDark)
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    hasUserInteracted = true
-                    panOffsetX += pan.x
-                    panOffsetY = (panOffsetY + pan.y).coerceIn(-200f, 200f)
-                    zoomScale = (zoomScale * zoom).coerceIn(0.9f, 3.0f)
-                }
-            }
             .testTag("viewer_screen_root")
     ) {
-        // Full Panoramic Image Canvas with Interactive Pan / Scale
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationX = panOffsetX
-                    translationY = panOffsetY
-                    scaleX = zoomScale * 1.5f
-                    scaleY = zoomScale * 1.5f
-                }
-        ) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(panoramaUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "360 Panorama Viewer",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+        // Interactive 360 panorama
+        if (panoramaFile != null) {
+            EquirectangularViewer(
+                panoramaFile = panoramaFile,
+                azimuthDeg = deviceAzimuth,
+                pitchDeg = devicePitch,
+                sensorEnabled = sensorEnabled
             )
         }
 
@@ -170,7 +123,6 @@ fun ViewerScreen(
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Back Button
             IconButton(
                 onClick = onBackClick,
                 modifier = Modifier
@@ -184,7 +136,6 @@ fun ViewerScreen(
                 )
             }
 
-            // Title
             Text(
                 text = "360Capture",
                 style = Typography.titleMedium,
@@ -193,15 +144,30 @@ fun ViewerScreen(
                 letterSpacing = 0.5.sp
             )
 
-            // Share Button
             IconButton(
                 onClick = {
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "360 Panoramic Photo")
-                        putExtra(Intent.EXTRA_TEXT, "Check out my high-resolution 360° panoramic photo captured with 360Capture!")
+                    val file = panoramaFile
+                    if (file != null) {
+                        try {
+                            val uri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                file
+                            )
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/jpeg"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                putExtra(Intent.EXTRA_SUBJECT, "360 Panoramic Photo")
+                                putExtra(Intent.EXTRA_TEXT, "Mi panorama 360° capturado con 360Capture")
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share 360 Panorama"))
+                        } catch (_: Exception) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("No se pudo compartir el panorama")
+                            }
+                        }
                     }
-                    context.startActivity(Intent.createChooser(shareIntent, "Share 360 Panorama"))
                 },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -248,30 +214,58 @@ fun ViewerScreen(
             }
         }
 
-        // "DRAG TO PAN" Animated Hint Overlay
-        AnimatedVisibility(
-            visible = !hasUserInteracted,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.Center)
+        // "DRAG TO PAN" Hint Overlay
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .alpha(0.7f)
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.alpha(hintAlpha)
+            Icon(
+                imageVector = Icons.Default.Swipe,
+                contentDescription = null,
+                tint = ImmersiveLilac.copy(alpha = 0.7f),
+                modifier = Modifier.size(40.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "ARRASTRA PARA MOVERTE",
+                style = Typography.labelSmall,
+                color = ImmersiveLilac.copy(alpha = 0.7f),
+                letterSpacing = 1.5.sp
+            )
+        }
+
+        // Sensor toggle pill (top right below bar)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 72.dp, end = 16.dp)
+                .clip(RoundedCornerShape(9999.dp))
+                .background(GlassBackground)
+                .border(1.dp, if (sensorEnabled) ImmersiveLilac else GlassBorder, RoundedCornerShape(9999.dp))
+                .clickable { sensorEnabled = !sensorEnabled }
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("sensor_toggle_button"),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Swipe,
+                    imageVector = Icons.Default.VideogameAsset,
                     contentDescription = null,
-                    tint = ImmersiveLilac.copy(alpha = 0.8f),
-                    modifier = Modifier.size(44.dp)
+                    tint = if (sensorEnabled) ImmersiveLilac else Secondary,
+                    modifier = Modifier.size(16.dp)
                 )
-                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "DRAG TO PAN",
+                    text = if (sensorEnabled) "Sensor ON" else "Sensor OFF",
                     style = Typography.labelSmall,
-                    color = ImmersiveLilac.copy(alpha = 0.85f),
-                    letterSpacing = 2.sp
+                    color = if (sensorEnabled) ImmersiveLilac else InverseSurface,
+                    fontSize = 12.sp
                 )
             }
         }
@@ -298,7 +292,6 @@ fun ViewerScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Save to Gallery (Primary Action - Immersive Lilac Button with Deep Purple Text)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -314,7 +307,7 @@ fun ViewerScreen(
                             .clickable {
                                 onSaveToGallery()
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("Saved to 360Capture Gallery!")
+                                    snackbarHostState.showSnackbar("Guardado en la galería 360")
                                 }
                             }
                             .testTag("save_to_gallery_button"),
@@ -331,7 +324,7 @@ fun ViewerScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Save to Gallery",
+                                text = "Guardar en Galería",
                                 color = ImmersiveDeepPurple,
                                 style = Typography.labelLarge,
                                 fontSize = 15.sp,
@@ -340,7 +333,6 @@ fun ViewerScreen(
                         }
                     }
 
-                    // Retake Button (Secondary Action)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -363,7 +355,7 @@ fun ViewerScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Retake",
+                                text = "Retomar",
                                 color = InverseSurface,
                                 style = Typography.labelLarge,
                                 fontSize = 15.sp
@@ -374,7 +366,7 @@ fun ViewerScreen(
             }
         }
 
-        // Toast / Snackbar Host
+        // Snackbar Host
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier

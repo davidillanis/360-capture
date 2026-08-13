@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -9,18 +12,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -28,14 +32,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.model.IsoMode
 import com.example.model.ProjectionMode
 import com.example.model.StitchingEngine
@@ -57,15 +62,20 @@ import com.example.ui.theme.Typography
 fun CaptureScreen(
     currentSlice: Int,
     totalSlices: Int,
+    isCapturing: Boolean,
+    captureStatusText: String,
     evValue: Float,
     isHdr: Boolean,
     isoMode: IsoMode,
     isAutoCapture: Boolean,
     selectedEngine: StitchingEngine,
     selectedProjection: ProjectionMode,
-    recentThumbnailUrl: String,
+    recentThumbnailUrl: String?,
     deviceRoll: Float,
     devicePitch: Float,
+    hasCameraPermission: Boolean,
+    onCameraReady: (PreviewView, LifecycleOwner) -> Unit,
+    onCameraDispose: () -> Unit,
     onEvChange: (Float) -> Unit,
     onHdrToggle: () -> Unit,
     onIsoCycle: () -> Unit,
@@ -76,34 +86,69 @@ fun CaptureScreen(
     onGalleryClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showExposureDialog by remember { mutableStateOf(false) }
+    var permissionGranted by remember { mutableStateOf(hasCameraPermission) }
 
-    var simulatedPanOffset by remember { mutableFloatStateOf(0f) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> permissionGranted = granted }
 
-    val cameraFeedUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuAWY7SSDUYwwH0B7lhTpkdNhn8bGZzJIKK1qA-xhfXHoJnzGvdaQgFrT7MatA6LuMPd7OHbol6GF7mD6FklbkR7PzgEVUlsaey0_6uzgiDtOl68SErl7y-RBxpdzky5RUF5BaBF_NSaPCcufx-IDcSEZjIHsxSlLyqbUuFPwPrkOzaRjJ1DD7k9oLC10RBbGqRRhbhSMZupxxSg1Qv5THAA8ApKp9eGeNB_agiJUPBXACiLO01g8qfA"
+    LaunchedEffect(Unit) {
+        if (!permissionGranted) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+
+    LaunchedEffect(permissionGranted) {
+        if (permissionGranted) {
+            onCameraReady(previewView, lifecycleOwner)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onCameraDispose() }
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(BackgroundDark)
-            .pointerInput(Unit) {
-                detectDragGestures { _, dragAmount ->
-                    simulatedPanOffset = (simulatedPanOffset + dragAmount.x * 0.5f).coerceIn(-400f, 400f)
-                }
-            }
             .testTag("capture_screen_root")
     ) {
-        // Camera Live Canvas Background
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(cameraFeedUrl)
-                .crossfade(true)
-                .build(),
-            contentDescription = "Camera Viewport",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+        // Camera Live Preview
+        if (permissionGranted) {
+            AndroidView(
+                factory = { previewView },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(BackgroundDark),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        tint = Secondary,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    Text(
+                        text = "Se necesita permiso de cámara",
+                        color = Secondary,
+                        style = Typography.bodyMedium
+                    )
+                }
+            }
+        }
 
         // Immersive atmospheric aura overlay
         ImmersiveAtmosphereBackground()
@@ -134,7 +179,6 @@ fun CaptureScreen(
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Back / Gallery Button (Left)
             IconButton(
                 onClick = onGalleryClick,
                 modifier = Modifier
@@ -148,7 +192,6 @@ fun CaptureScreen(
                 )
             }
 
-            // App Title (Center)
             Text(
                 text = "360Capture",
                 style = Typography.titleMedium,
@@ -157,7 +200,6 @@ fun CaptureScreen(
                 letterSpacing = 0.5.sp
             )
 
-            // Settings Button (Right)
             IconButton(
                 onClick = { showSettingsDialog = true },
                 modifier = Modifier
@@ -185,11 +227,32 @@ fun CaptureScreen(
             )
         }
 
+        // Capture status text
+        if (isCapturing) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 132.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = captureStatusText,
+                    color = ImmersiveLilac,
+                    style = Typography.bodyMedium,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
         // Horizon Guide & Level Indicator
         HorizonGuide(
             rollOffset = deviceRoll,
             pitchOffset = devicePitch,
-            instructionText = if (currentSlice == 0) "Align horizon & tap capture" else "Keep rotating slowly (${currentSlice}/$totalSlices)",
+            instructionText = when {
+                isCapturing -> captureStatusText
+                currentSlice == 0 -> "Alínea el horizonte y pulsa capturar"
+                else -> "Gira lentamente (${currentSlice}/$totalSlices)"
+            },
             modifier = Modifier.align(Alignment.Center)
         )
 
@@ -201,7 +264,6 @@ fun CaptureScreen(
                 .padding(horizontal = 16.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Quick Settings Pills
             QuickSettingsPills(
                 evValue = evValue,
                 isHdr = isHdr,
@@ -212,9 +274,8 @@ fun CaptureScreen(
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
-            // Main Shutter Control Bar
             ShutterControls(
-                recentThumbnailUrl = recentThumbnailUrl,
+                recentThumbnailUrl = recentThumbnailUrl.orEmpty(),
                 isAutoCapture = isAutoCapture,
                 onThumbnailClick = onGalleryClick,
                 onShutterClick = onShutterClick,

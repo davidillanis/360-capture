@@ -14,6 +14,7 @@ data class OrientationData(
     val pitch: Float = 0f,   // Vertical tilt (-90 to +90)
     val roll: Float = 0f,    // Horizontal level tilt (-180 to +180)
     val azimuth: Float = 0f, // Rotation around 360 (-180 to +180 or 0 to 360)
+    val unwrappedAzimuth: Float = 0f, // Continuous rotation angle, never wraps
     val isLevel: Boolean = true
 )
 
@@ -29,6 +30,10 @@ class OrientationSensorManager(context: Context) : SensorEventListener {
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
 
+    private var lastAzimuthDeg = 0f
+    private var unwrappedAzimuthDeg = 0f
+    private var initialized = false
+
     fun startListening() {
         rotationSensor?.let {
             sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
@@ -37,6 +42,21 @@ class OrientationSensorManager(context: Context) : SensorEventListener {
 
     fun stopListening() {
         sensorManager?.unregisterListener(this)
+    }
+
+    private fun unwrap(azimuthDeg: Float): Float {
+        if (!initialized) {
+            lastAzimuthDeg = azimuthDeg
+            unwrappedAzimuthDeg = azimuthDeg
+            initialized = true
+            return azimuthDeg
+        }
+        var delta = azimuthDeg - lastAzimuthDeg
+        if (delta > 180f) delta -= 360f
+        if (delta < -180f) delta += 360f
+        lastAzimuthDeg = azimuthDeg
+        unwrappedAzimuthDeg += delta
+        return unwrappedAzimuthDeg
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -57,6 +77,7 @@ class OrientationSensorManager(context: Context) : SensorEventListener {
                 pitch = pitch,
                 roll = roll,
                 azimuth = (azimuth + 360f) % 360f,
+                unwrappedAzimuth = unwrap((azimuth + 360f) % 360f),
                 isLevel = isLevel
             )
         } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {

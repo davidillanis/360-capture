@@ -49,6 +49,7 @@ import com.example.ui.theme.OnSurface
 import com.example.ui.theme.Secondary
 import com.example.ui.theme.SurfaceContainer
 import com.example.ui.theme.Typography
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -166,7 +167,7 @@ fun GalleryScreen(
                                 ) {
                                     AsyncImage(
                                         model = ImageRequest.Builder(LocalContext.current)
-                                            .data(pano.panoramaUrl)
+                                            .data(File(pano.previewUrl.takeIf { it.isNotBlank() } ?: pano.panoramaUrl))
                                             .crossfade(true)
                                             .build(),
                                         contentDescription = pano.title,
