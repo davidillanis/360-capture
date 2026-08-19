@@ -14,6 +14,7 @@ import com.example.model.IsoMode
 import com.example.model.ProjectionMode
 import com.example.model.SavedPanorama
 import com.example.model.ScreenState
+import com.example.model.SphereGrid
 import com.example.model.StitchingEngine
 import com.example.sensor.OrientationData
 import com.example.sensor.OrientationSensorManager
@@ -21,12 +22,10 @@ import com.example.stitching.PanoramaStitcher
 import com.example.stitching.SliceSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -34,10 +33,12 @@ import java.util.UUID
 data class PanoramaUiState(
     val screenState: ScreenState = ScreenState.CAPTURE,
     val currentSlice: Int = 0,
-    val totalSlices: Int = 10,
+    val totalSlices: Int = SphereGrid.TOTAL_CELLS,
+    val coveredCells: Set<Int> = emptySet(),
+    val aimCell: Int? = null,
+    val isSphereComplete: Boolean = false,
     val isCapturing: Boolean = false,
-    val isAutoCapture: Boolean = true,
-    val captureStatusText: String = "Gira lentamente para capturar 360°",
+    val captureStatusText: String = "Toma una foto apuntando a cada zona para cubrir la esfera 360°",
     val evValue: Float = 0f,
     val isHdr: Boolean = false,
     val isoMode: IsoMode = IsoMode.AUTO,
@@ -66,19 +67,20 @@ class PanoramaViewModel(application: Application) : AndroidViewModel(application
     private var captureJob: Job? = null
     private var stitchJob: Job? = null
 
-    private var startAzimuth = 0f
     private var sessionPanoFile: File? = null
     private var sessionThumbFile: File? = null
-
-    private val angleStep: Float
-        get() = 360f / _uiState.value.totalSlices
 
     init {
         sensorManager.startListening()
         _uiState.update { it.copy(savedPanoramas = repository.loadAll()) }
         viewModelScope.launch {
             sensorManager.orientationFlow.collect { orient ->
-                _uiState.update { it.copy(orientation = orient) }
+                _uiState.update {
+                    it.copy(
+                        orientation = orient,
+                        aimCell = SphereGrid.cellIndex(orient.azimuth, orient.pitch)
+                    )
+                }
             }
         }
     }
@@ -128,10 +130,6 @@ class PanoramaViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun toggleAutoCapture(enabled: Boolean) {
-        _uiState.update { it.copy(isAutoCapture = enabled) }
-    }
-
     fun setEngine(engine: StitchingEngine) {
         _uiState.update { it.copy(stitchingEngine = engine) }
     }
@@ -140,65 +138,14 @@ class PanoramaViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(projectionMode = projection) }
     }
 
-    // ---- Capture ----
+    // ---- Capture (esfera 360°) ----
 
     fun onShutterClick() {
         val state = _uiState.value
-        if (state.isAutoCapture && state.isCapturing) {
-            stopCapture()
+        if (state.isSphereComplete) {
+            finishCapture()
             return
         }
-        if (state.isAutoCapture) {
-            startAutoCapture()
-        } else {
-            captureManual()
-        }
-    }
-
-    private fun startAutoCapture() {
-        if (!cameraController.isBound()) {
-            _uiState.update { it.copy(errorMessage = "Espera a que la cámara esté lista") }
-            return
-        }
-        slices.clear()
-        startAzimuth = _uiState.value.orientation.unwrappedAzimuth
-        _uiState.update {
-            it.copy(
-                isCapturing = true,
-                currentSlice = 0,
-                errorMessage = null,
-                captureStatusText = "Foto 1 tomada. Gira lentamente 360°..."
-            )
-        }
-        captureJob?.cancel()
-        captureJob = viewModelScope.launch {
-            var failures = 0
-            if (!captureSliceNow()) failures++
-            while (isActive && slices.size < _uiState.value.totalSlices) {
-                delay(80)
-                val rel = (_uiState.value.orientation.unwrappedAzimuth - startAzimuth).coerceAtLeast(0f)
-                val target = minOf(_uiState.value.totalSlices, (rel / angleStep).toInt() + 1)
-                while (isActive && slices.size < target) {
-                    if (captureSliceNow()) {
-                        failures = 0
-                    } else {
-                        failures++
-                        if (failures > 5) {
-                            stopCapture()
-                            return@launch
-                        }
-                        delay(300)
-                    }
-                }
-            }
-            if (slices.size >= _uiState.value.totalSlices) {
-                finishCapture()
-            }
-        }
-    }
-
-    private fun captureManual() {
-        if (slices.size >= _uiState.value.totalSlices) return
         if (!cameraController.isBound()) {
             _uiState.update { it.copy(errorMessage = "Espera a que la cámara esté lista") }
             return
@@ -206,14 +153,13 @@ class PanoramaViewModel(application: Application) : AndroidViewModel(application
         captureJob?.cancel()
         captureJob = viewModelScope.launch {
             _uiState.update { it.copy(isCapturing = true, errorMessage = null) }
-            val ok = captureSliceNow()
-            if (ok && slices.size >= _uiState.value.totalSlices) {
-                finishCapture()
+            if (captureSliceNow()) {
+                _uiState.update { it.copy(isCapturing = false) }
             } else {
                 _uiState.update {
                     it.copy(
                         isCapturing = false,
-                        captureStatusText = if (ok) "Captura ${slices.size}/${it.totalSlices}. Gira y toca el botón." else "No se pudo capturar. Inténtalo de nuevo."
+                        captureStatusText = "No se pudo capturar. Inténtalo de nuevo."
                     )
                 }
             }
@@ -228,33 +174,28 @@ class PanoramaViewModel(application: Application) : AndroidViewModel(application
         val ok = cameraController.takePicture(file)
         if (!ok) return false
         val o = _uiState.value.orientation
-        val relAzimuth = (o.unwrappedAzimuth - startAzimuth).coerceAtLeast(0f)
-        slices.add(SliceSource(file = file, azimuthDeg = relAzimuth, pitchDeg = o.pitch, rollDeg = o.roll))
+        val cell = SphereGrid.cellIndex(o.azimuth, o.pitch)
+        slices.add(SliceSource(file = file, azimuthDeg = o.azimuth, pitchDeg = o.pitch, rollDeg = o.roll))
+        val covered = _uiState.value.coveredCells + cell
+        val complete = covered.size >= SphereGrid.TOTAL_CELLS
+        val target = SphereGrid.nearestUncovered(covered, o.azimuth, o.pitch)
         _uiState.update {
             it.copy(
                 currentSlice = slices.size,
+                coveredCells = covered,
+                isSphereComplete = complete,
                 recentThumbnailUrl = file.toURI().toString(),
                 sliceThumbnails = it.sliceThumbnails + file.toURI().toString(),
-                captureStatusText = "Captura ${slices.size}/${it.totalSlices}. Sigue girando..."
+                captureStatusText = if (complete) {
+                    "Esfera 360° completa. Pulsa de nuevo para crear el panorama."
+                } else if (target != null) {
+                    "Apunta a: ${SphereGrid.directionLabel(target)} (${covered.size}/${SphereGrid.TOTAL_CELLS})"
+                } else {
+                    "Captura ${covered.size}/${SphereGrid.TOTAL_CELLS}"
+                }
             )
         }
         return true
-    }
-
-    private fun stopCapture() {
-        captureJob?.cancel()
-        _uiState.update { it.copy(isCapturing = false) }
-        if (slices.size >= 3) {
-            finishCapture()
-        } else {
-            slices.clear()
-            _uiState.update {
-                it.copy(
-                    currentSlice = 0,
-                    captureStatusText = "Toma al menos 3 fotos para crear un panorama."
-                )
-            }
-        }
     }
 
     private fun finishCapture() {
@@ -270,7 +211,10 @@ class PanoramaViewModel(application: Application) : AndroidViewModel(application
         stitchJob?.cancel()
         stitchJob = viewModelScope.launch(Dispatchers.Default) {
             val app = getApplication<Application>()
-            val bitmap = PanoramaStitcher.stitch(slices.toList()) { progress, text ->
+            val bitmap = PanoramaStitcher.stitch(
+                slices = slices.toList(),
+                preferCylindrical = true
+            ) { progress, text ->
                 _uiState.update {
                     it.copy(stitchingProgress = progress, stitchingStepText = text)
                 }
@@ -352,12 +296,14 @@ class PanoramaViewModel(application: Application) : AndroidViewModel(application
             it.copy(
                 screenState = ScreenState.CAPTURE,
                 currentSlice = 0,
+                coveredCells = emptySet(),
+                isSphereComplete = false,
                 isCapturing = false,
                 stitchingProgress = 0f,
                 activePanoramaPath = null,
                 sliceThumbnails = emptyList(),
                 errorMessage = null,
-                captureStatusText = "Gira lentamente para capturar 360°"
+                captureStatusText = "Toma una foto apuntando a cada zona para cubrir la esfera 360°"
             )
         }
     }

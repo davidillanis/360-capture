@@ -19,10 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Panorama
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -47,7 +45,6 @@ import com.example.ui.theme.GlassBackground
 import com.example.ui.theme.GlassBorder
 import com.example.ui.theme.ImmersiveDeepPurple
 import com.example.ui.theme.ImmersiveLilac
-import com.example.ui.theme.ImmersiveLilacGlow
 import com.example.ui.theme.OnSurfaceVariant
 import com.example.ui.theme.SurfaceContainer
 import com.example.ui.theme.SurfaceContainerHighest
@@ -56,10 +53,11 @@ import com.example.ui.theme.Typography
 @Composable
 fun ShutterControls(
     recentThumbnailUrl: String,
-    isAutoCapture: Boolean,
+    coveredCount: Int,
+    totalCells: Int,
+    isSphereComplete: Boolean,
     onThumbnailClick: () -> Unit,
     onShutterClick: () -> Unit,
-    onAutoCaptureToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isPressed by remember { mutableStateOf(false) }
@@ -169,27 +167,36 @@ fun ShutterControls(
                 }
             }
 
-            // Auto-Capture Switch (Right)
+            // Sphere Coverage Indicator (Right)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.width(48.dp)
             ) {
-                Switch(
-                    checked = isAutoCapture,
-                    onCheckedChange = onAutoCaptureToggle,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = ImmersiveDeepPurple,
-                        checkedTrackColor = ImmersiveLilac,
-                        uncheckedThumbColor = Color.LightGray,
-                        uncheckedTrackColor = SurfaceContainerHighest
-                    ),
+                Box(
                     modifier = Modifier
-                        .scale(0.85f)
-                        .testTag("auto_capture_switch")
-                )
+                        .size(36.dp)
+                        .shadow(
+                            elevation = if (isSphereComplete) 12.dp else 0.dp,
+                            shape = CircleShape,
+                            spotColor = ImmersiveLilac,
+                            ambientColor = ImmersiveLilac
+                        )
+                        .background(
+                            color = if (isSphereComplete) ImmersiveLilac else SurfaceContainerHighest,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = if (isSphereComplete) "Esfera completa" else "Cobertura",
+                        tint = if (isSphereComplete) ImmersiveDeepPurple else OnSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 Text(
-                    text = "AUTO",
+                    text = "$coveredCount/$totalCells",
                     color = OnSurfaceVariant,
                     style = Typography.labelSmall,
                     fontSize = 10.sp

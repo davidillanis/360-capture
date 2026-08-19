@@ -45,6 +45,9 @@ class CylindricalStitcher(
         // Normalize every image to the same height so a single focal applies.
         val normalized = images.map { img ->
             if (img.mat.rows() == canvasHeight) {
+                // Return a copy if we want to be able to release it later without affecting the original
+                // Or just keep the reference if we are careful. 
+                // Given the release logic later, it's safer to keep it and only release if it's a new Mat.
                 img
             } else {
                 val scale = canvasHeight.toDouble() / img.mat.rows()
@@ -54,7 +57,7 @@ class CylindricalStitcher(
                 img.copy(mat = resized)
             }
         }
-
+        
         val first = normalized[0]
         cols = first.mat.cols()
         rows = first.mat.rows()
@@ -63,12 +66,12 @@ class CylindricalStitcher(
         cx = cols / 2.0
         cy = rows / 2.0
 
-        val accColor = Mat(width, height, CvType.CV_32FC3, Scalar(0.0))
-        val accWeight = Mat(width, height, CvType.CV_32F, Scalar(0.0))
+        val accColor = Mat(height, width, CvType.CV_32FC3, Scalar(0.0))
+        val accWeight = Mat(height, width, CvType.CV_32F, Scalar(0.0))
 
-        val mapX = Mat(width, height, CvType.CV_32FC1)
-        val mapY = Mat(width, height, CvType.CV_32FC1)
-        val mapMask = Mat(width, height, CvType.CV_32F)
+        val mapX = Mat(height, width, CvType.CV_32FC1)
+        val mapY = Mat(height, width, CvType.CV_32FC1)
+        val mapMask = Mat(height, width, CvType.CV_32F)
         val dataX = FloatArray(width * height)
         val dataY = FloatArray(width * height)
         val dataMask = FloatArray(width * height)
@@ -80,10 +83,17 @@ class CylindricalStitcher(
             val cosRoll = cos(roll)
             val sinRoll = sin(roll)
 
+            dataX.fill(0f)
+            dataY.fill(0f)
             dataMask.fill(0f)
 
             for (py in 0 until height) {
-                val phi = (py - height / 2.0) / fPano
+                // Elevación del panorama (positiva = arriba): e_abs = -phi.
+                // El eje óptico de la cámara apunta a elevación e_cam = -pitch
+                // (Android: pitch positivo = apuntando hacia abajo).
+                // v = cy + fCam*tan(phi_rel)/cosL con phi_rel = e_abs - e_cam,
+                // por lo que tanPhi = tan(phi - pitch).
+                val phi = (py - height / 2.0) / fPano - pitch
                 val tanPhi = tan(phi)
                 for (px in 0 until width) {
                     val lambda = (px - width / 2.0) / fPano - theta
@@ -99,9 +109,11 @@ class CylindricalStitcher(
                     v = cy + ru * sinRoll + rv * cosRoll
                     if (u >= 0.0 && u < cols && v >= 0.0 && v < rows) {
                         val idx = py * width + px
-                        dataX[idx] = u.toFloat()
-                        dataY[idx] = v.toFloat()
-                        dataMask[idx] = 1f
+                        if (idx < dataX.size) {
+                            dataX[idx] = u.toFloat()
+                            dataY[idx] = v.toFloat()
+                            dataMask[idx] = 1f
+                        }
                     }
                 }
             }
@@ -119,6 +131,11 @@ class CylindricalStitcher(
             Imgproc.remap(srcF, warped, mapX, mapY, Imgproc.INTER_LINEAR, Core.BORDER_CONSTANT, Scalar(0.0))
             Core.add(accColor, warped, accColor)
             Core.add(accWeight, mapMask, accWeight)
+            
+            // Release intermediate Mats
+            rgb.release()
+            srcF.release()
+            warped.release()
         }
 
         val avg = Mat()
@@ -128,6 +145,19 @@ class CylindricalStitcher(
         val invalid = Mat()
         Core.compare(accWeight, Scalar(0.01), invalid, Core.CMP_LE)
         result.setTo(Scalar(0.0), invalid)
+
+        accColor.release()
+        accWeight.release()
+        mapX.release()
+        mapY.release()
+        mapMask.release()
+        avg.release()
+        invalid.release()
+        normalized.zip(images).forEach { (norm, orig) ->
+            if (norm.mat != orig.mat) {
+                norm.mat.release()
+            }
+        }
 
         return result
     }

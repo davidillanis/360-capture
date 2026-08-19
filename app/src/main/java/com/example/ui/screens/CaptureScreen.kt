@@ -47,10 +47,10 @@ import com.example.model.StitchingEngine
 import com.example.ui.components.ExposureDialog
 import com.example.ui.components.HorizonGuide
 import com.example.ui.components.ImmersiveAtmosphereBackground
-import com.example.ui.components.ProgressDots
 import com.example.ui.components.QuickSettingsPills
 import com.example.ui.components.SettingsDialog
 import com.example.ui.components.ShutterControls
+import com.example.ui.components.SphereCoverageGrid
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.GlassBackground
 import com.example.ui.theme.ImmersiveLilac
@@ -62,12 +62,14 @@ import com.example.ui.theme.Typography
 fun CaptureScreen(
     currentSlice: Int,
     totalSlices: Int,
+    coveredCells: Set<Int>,
+    aimCell: Int?,
+    isSphereComplete: Boolean,
     isCapturing: Boolean,
     captureStatusText: String,
     evValue: Float,
     isHdr: Boolean,
     isoMode: IsoMode,
-    isAutoCapture: Boolean,
     selectedEngine: StitchingEngine,
     selectedProjection: ProjectionMode,
     recentThumbnailUrl: String?,
@@ -79,7 +81,6 @@ fun CaptureScreen(
     onEvChange: (Float) -> Unit,
     onHdrToggle: () -> Unit,
     onIsoCycle: () -> Unit,
-    onAutoCaptureToggle: (Boolean) -> Unit,
     onEngineSelected: (StitchingEngine) -> Unit,
     onProjectionSelected: (ProjectionMode) -> Unit,
     onShutterClick: () -> Unit,
@@ -214,45 +215,39 @@ fun CaptureScreen(
             }
         }
 
-        // Progress Dots Ring at top
+        // Sphere coverage grid at top
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 80.dp),
             contentAlignment = Alignment.Center
         ) {
-            ProgressDots(
-                totalSlices = totalSlices,
-                capturedSlices = currentSlice
+            SphereCoverageGrid(
+                coveredCells = coveredCells,
+                aimCell = aimCell
             )
         }
 
         // Capture status text
-        if (isCapturing) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 132.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = captureStatusText,
-                    color = ImmersiveLilac,
-                    style = Typography.bodyMedium,
-                    fontSize = 14.sp
-                )
-            }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 140.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = captureStatusText,
+                color = ImmersiveLilac,
+                style = Typography.bodyMedium,
+                fontSize = 14.sp
+            )
         }
 
         // Horizon Guide & Level Indicator
         HorizonGuide(
             rollOffset = deviceRoll,
             pitchOffset = devicePitch,
-            instructionText = when {
-                isCapturing -> captureStatusText
-                currentSlice == 0 -> "Alínea el horizonte y pulsa capturar"
-                else -> "Gira lentamente (${currentSlice}/$totalSlices)"
-            },
+            instructionText = captureStatusText,
             modifier = Modifier.align(Alignment.Center)
         )
 
@@ -276,10 +271,11 @@ fun CaptureScreen(
 
             ShutterControls(
                 recentThumbnailUrl = recentThumbnailUrl.orEmpty(),
-                isAutoCapture = isAutoCapture,
+                coveredCount = currentSlice,
+                totalCells = totalSlices,
+                isSphereComplete = isSphereComplete,
                 onThumbnailClick = onGalleryClick,
-                onShutterClick = onShutterClick,
-                onAutoCaptureToggle = onAutoCaptureToggle
+                onShutterClick = onShutterClick
             )
         }
 

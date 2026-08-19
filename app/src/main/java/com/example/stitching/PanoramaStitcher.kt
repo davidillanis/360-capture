@@ -1,6 +1,7 @@
 package com.example.stitching
 
 import android.graphics.Bitmap
+import android.util.Log
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.Mat
@@ -33,14 +34,17 @@ object PanoramaStitcher {
         if (initialized) return true
         initialized = try {
             OpenCVLoader.initLocal()
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            Log.e(TAG, "OpenCV init failed", t)
             false
         }
+        if (!initialized) Log.e(TAG, "ensureOpenCV returned false: OpenCV native library not loaded")
         return initialized
     }
 
     fun stitch(
         slices: List<SliceSource>,
+        preferCylindrical: Boolean = false,
         onProgress: (Float, String) -> Unit = { _, _ -> }
     ): Bitmap? {
         if (slices.isEmpty()) return null
@@ -60,20 +64,26 @@ object PanoramaStitcher {
             onProgress(0.03f + 0.12f * (index + 1) / slices.size, "Procesando imagen ${index + 1}/${slices.size}")
         }
 
-        onProgress(0.18f, "Detectando puntos clave con OpenCV (ORB)...")
-
         var pano: Mat? = null
-        try {
-            pano = FeatureStitcher().stitch(mats)
-        } catch (t: Throwable) {
-            pano = null
+        if (!preferCylindrical) {
+            onProgress(0.18f, "Detectando puntos clave con OpenCV (ORB)...")
+            try {
+                pano = FeatureStitcher().stitch(mats)
+            } catch (t: Throwable) {
+                Log.w(TAG, "FeatureStitcher failed", t)
+                pano = null
+            }
         }
 
-        val usable = pano != null &&
+        val usable = !preferCylindrical &&
+            pano != null &&
             pano.cols() > 0 &&
             pano.cols().toDouble() / pano.rows() > 1.3
 
         if (!usable) {
+            if (!preferCylindrical) {
+                Log.w(TAG, "FeatureStitcher unusable (null or aspect <= 1.3), falling back to CylindricalStitcher")
+            }
             pano?.release()
             onProgress(0.35f, "Usando proyección cilíndrica por sensores...")
             pano = try {
@@ -83,6 +93,7 @@ object PanoramaStitcher {
                     }
                 )
             } catch (t: Throwable) {
+                Log.e(TAG, "CylindricalStitcher failed", t)
                 return null
             }
         }
@@ -101,6 +112,8 @@ object PanoramaStitcher {
         onProgress(1f, "Panorama listo")
         return result
     }
+
+    private const val TAG = "PanoramaStitcher"
 
     /** Resizes/crops the stitched panorama so its aspect ratio is exactly 2:1. */
     private fun normalizeEquirect(pano: Mat, targetHeight: Int = EQUIRECT_HEIGHT): Mat {
