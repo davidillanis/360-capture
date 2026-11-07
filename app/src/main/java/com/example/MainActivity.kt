@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity() {
                                     coverageText = uiState.activeCoverage?.let {
                                         "${it.label}\n${it.missingPixels} píxeles sin cubrir de ${it.width * it.height}."
                                     },
+                                    coverage = uiState.activeCoverage,
                                     onBackClick = viewModel::openCapture,
                                     onSaveToGallery = viewModel::saveToGallery,
                                     onRetakeClick = viewModel::retake

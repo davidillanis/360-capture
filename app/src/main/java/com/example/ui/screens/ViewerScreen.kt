@@ -1,6 +1,6 @@
 package com.example.ui.screens
 
-import android.content.Intent
+import android.content.ActivityNotFoundException
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Swipe
 import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -47,7 +49,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
+import com.example.sharing.PanoramaDocumentExporter
+import com.example.sharing.WhatsAppSharing
+import com.example.stitching.CoverageSummary
 import com.example.ui.components.ImmersiveAtmosphereBackground
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.GlassBackground
@@ -59,6 +63,9 @@ import com.example.ui.theme.Secondary
 import com.example.ui.theme.Typography
 import com.example.viewer.EquirectangularViewer
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
@@ -70,14 +77,42 @@ fun ViewerScreen(
     onSaveToGallery: () -> Unit,
     onRetakeClick: () -> Unit,
     coverageText: String? = null,
+    coverage: CoverageSummary? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var sensorEnabled by remember { mutableStateOf(true) }
+    var isSharing by remember { mutableStateOf(false) }
 
     val panoramaFile = panoramaPath?.let { File(it) }
+    val shareOnWhatsApp: () -> Unit = {
+        if (!isSharing && panoramaFile != null) {
+            isSharing = true
+            scope.launch {
+                try {
+                    val targets = WhatsAppSharing.availableTargets(context)
+                    if (targets.isEmpty()) {
+                        snackbarHostState.showSnackbar("Instala WhatsApp o WhatsApp Business para compartir el panorama")
+                    } else {
+                        val document = withContext(Dispatchers.IO) {
+                            PanoramaDocumentExporter(context.cacheDir).export(panoramaFile, coverage)
+                        }
+                        context.startActivity(WhatsAppSharing.createIntent(context, document, targets))
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: ActivityNotFoundException) {
+                    snackbarHostState.showSnackbar("No se pudo abrir WhatsApp. Comprueba que esté instalado y habilitado.")
+                } catch (_: Exception) {
+                    snackbarHostState.showSnackbar("No se pudo preparar el documento. Comprueba que el panorama exista y haya espacio libre.")
+                } finally {
+                    isSharing = false
+                }
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -146,37 +181,15 @@ fun ViewerScreen(
             )
 
             IconButton(
-                onClick = {
-                    val file = panoramaFile
-                    if (file != null) {
-                        try {
-                            val uri = FileProvider.getUriForFile(
-                                context,
-                                "${context.packageName}.fileprovider",
-                                file
-                            )
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "image/jpeg"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                putExtra(Intent.EXTRA_SUBJECT, "360 Panoramic Photo")
-                                putExtra(Intent.EXTRA_TEXT, "Mi panorama 360° capturado con 360Capture")
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share 360 Panorama"))
-                        } catch (_: Exception) {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("No se pudo compartir el panorama")
-                            }
-                        }
-                    }
-                },
+                onClick = shareOnWhatsApp,
+                enabled = panoramaFile != null && !isSharing,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .testTag("viewer_share_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.Share,
-                    contentDescription = "Share",
+                    contentDescription = "Compartir por WhatsApp como documento JPEG",
                     tint = Secondary
                 )
             }
@@ -296,6 +309,20 @@ fun ViewerScreen(
                     coverageText?.let {
                         Text(text = it, color = ImmersiveLilac, style = Typography.bodySmall)
                     }
+                    OutlinedButton(
+                        onClick = shareOnWhatsApp,
+                        enabled = panoramaFile != null && !isSharing,
+                        modifier = Modifier.fillMaxWidth().testTag("share_whatsapp_button")
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (isSharing) "Preparando JPEG…" else "Enviar por WhatsApp")
+                    }
+                    Text(
+                        text = "Documento JPEG original · para verlo en 360°, ábrelo con un visor compatible.",
+                        color = Secondary,
+                        style = Typography.bodySmall
+                    )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()

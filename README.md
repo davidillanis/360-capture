@@ -26,6 +26,7 @@ app/src/main/java/com/example/
 ├── sensor/          # Orientación 3D de la cámara trasera
 ├── stitching/       # SphericalGeometry, SphericalCoverage, EquirectangularStitcher, PanoramaStitcher
 ├── viewer/          # Visor equirectangular OpenGL
+├── sharing/         # JPEG con metadatos GPano y envío como documento a WhatsApp
 ├── data/            # PanoramaRepository (persistencia en filesDir)
 ├── model/           # Modelos
 └── ui/              # ViewModel + pantallas (Capture, Processing, Viewer, Gallery)
@@ -55,6 +56,18 @@ La configuración de depuración utiliza `debug.keystore` en la raíz del proyec
 6. Revisa los huecos negros y el informe de cobertura. La flecha de volver conserva las tomas para añadir fotos y procesar otra vez. **Reiniciar** o **Retomar** comienza una sesión nueva.
 7. **Guardar en Galería** conserva el resultado y su cobertura en la galería interna.
 
+## Compartir por WhatsApp
+
+1. Abre el panorama recién creado o selecciónalo en la galería de la app.
+2. Pulsa **Enviar por WhatsApp** (también disponible en el icono de compartir).
+3. Selecciona el contacto o grupo y confirma el envío en WhatsApp.
+
+Se adjunta un **documento `.jpg`**, con la resolución y los píxeles JPEG originales, y metadatos **XMP/GPano** para que los visores compatibles reconozcan la proyección equirectangular. No se pasa por el editor de fotos de WhatsApp. Si tienes WhatsApp y WhatsApp Business, puedes elegir cuál abrir; si no está instalado ninguno, la app lo indica.
+
+El destinatario descarga el documento y lo abre/importa en un visor 360° compatible. El archivo no se convierte en una vista 360° interactiva dentro del chat. Los panoramas parciales se identifican con `_parcial` en el nombre y conservan sus huecos; el informe de cobertura también se incluye en un espacio de nombres propio de XMP, independiente de GPano.
+
+La preparación se realiza localmente. Los documentos temporales con más de siete días se eliminan al preparar nuevos envíos. No hace falta guardar primero el panorama en la galería.
+
 ## Verificación
 
 ```bash
@@ -64,6 +77,7 @@ La configuración de depuración utiliza `debug.keystore` en la raíz del proyec
 ```
 
 - Pruebas JVM: cambios de orientación, eje óptico, rotación de pantalla, focal/crop, cruce de longitudes, polos, cobertura, persistencia del informe y matrices del visor.
+- Compartición: validación del XMP, comparación del JPEG comprimido antes/después de exportar, permisos de lectura de la URI, MIME de documento y selección de WhatsApp/WhatsApp Business.
 - Pruebas instrumentadas: OpenCV nativo reconstruye una esfera de colores conocida a partir de seis fotos sintéticas; comprueba también fotos inclinadas, brillo, ausencia de contaminación fuera de la máscara y el pipeline JPEG → equirectangular.
 - Para validar en un teléfono real: fotografía una escena estática con líneas rectas y referencias reconocibles alrededor, en el techo y en el suelo. Comprueba el horizonte, la unión al volver al inicio y ambas regiones polares. Una captura limitada al horizonte debe quedar marcada como incompleta.
 
