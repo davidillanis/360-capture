@@ -76,6 +76,8 @@ class MainActivity : ComponentActivity() {
                                     coveredCells = uiState.coveredCells,
                                     aimCell = uiState.aimCell,
                                     isSphereComplete = uiState.isSphereComplete,
+                                    coverageFraction = uiState.coverageFraction,
+                                    deviceAzimuth = uiState.orientation.azimuth,
                                     isCapturing = uiState.isCapturing,
                                     captureStatusText = uiState.captureStatusText,
                                     evValue = uiState.evValue,
@@ -95,6 +97,8 @@ class MainActivity : ComponentActivity() {
                                     onEngineSelected = viewModel::setEngine,
                                     onProjectionSelected = viewModel::setProjection,
                                     onShutterClick = viewModel::onShutterClick,
+                                    onFinishCapture = viewModel::finishCapture,
+                                    onResetCapture = viewModel::retake,
                                     onGalleryClick = viewModel::openGallery
                                 )
                             }
@@ -102,7 +106,7 @@ class MainActivity : ComponentActivity() {
                                 ProcessingScreen(
                                     stitchingProgress = uiState.stitchingProgress,
                                     engine = uiState.stitchingEngine,
-                                    totalImages = uiState.totalSlices,
+                                    totalImages = uiState.currentSlice,
                                     currentStepText = uiState.stitchingStepText,
                                     sliceThumbnails = uiState.sliceThumbnails
                                 )
@@ -112,6 +116,9 @@ class MainActivity : ComponentActivity() {
                                     panoramaPath = uiState.activePanoramaPath,
                                     deviceAzimuth = uiState.orientation.azimuth,
                                     devicePitch = uiState.orientation.pitch,
+                                    coverageText = uiState.activeCoverage?.let {
+                                        "${it.label}\n${it.missingPixels} píxeles sin cubrir de ${it.width * it.height}."
+                                    },
                                     onBackClick = viewModel::openCapture,
                                     onSaveToGallery = viewModel::saveToGallery,
                                     onRetakeClick = viewModel::retake

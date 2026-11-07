@@ -35,6 +35,7 @@ class EquirectRenderer : android.opengl.GLSurfaceView.Renderer {
     private val projection = FloatArray(16)
     private val modelView = FloatArray(16)
     private val mvp = FloatArray(16)
+    private val rotation = FloatArray(9)
 
     private var sensorYaw = 0f
     private var sensorPitch = 0f
@@ -51,7 +52,13 @@ class EquirectRenderer : android.opengl.GLSurfaceView.Renderer {
         private set
 
     fun setPanorama(bmp: Bitmap?) {
+        if (bitmap !== bmp) bitmap?.recycle()
         bitmap = bmp
+        if (bmp == null) {
+            if (hasTexture) GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
+            hasTexture = false
+            loadedBitmap = null
+        }
     }
 
     fun setSensor(yawDeg: Float, pitchDeg: Float, enabled: Boolean) {
@@ -88,7 +95,7 @@ class EquirectRenderer : android.opengl.GLSurfaceView.Renderer {
         val targetYaw = sensorYaw + dragYaw
         val targetPitch = (sensorPitch + dragPitch).coerceIn(-1.4f, 1.4f)
         if (sensorEnabled) {
-            yaw += (targetYaw - yaw) * 0.25f
+            yaw += ViewerRotation.shortestDelta(yaw, targetYaw) * 0.25f
             pitch += (targetPitch - pitch) * 0.25f
         } else {
             yaw = targetYaw
@@ -117,9 +124,8 @@ class EquirectRenderer : android.opengl.GLSurfaceView.Renderer {
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
         GLES20.glUniform1i(uTexture, 0)
 
-        val rot = FloatArray(9)
-        rotationMatrix(rot, yaw, pitch)
-        GLES20.glUniformMatrix3fv(uRotation, 1, false, rot, 0)
+        ViewerRotation.matrix(rotation, yaw, pitch)
+        GLES20.glUniformMatrix3fv(uRotation, 1, false, rotation, 0)
 
         Matrix.setIdentityM(modelView, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
@@ -151,23 +157,6 @@ class EquirectRenderer : android.opengl.GLSurfaceView.Renderer {
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0)
         hasTexture = true
-    }
-
-    private fun rotationMatrix(out: FloatArray, yaw: Float, pitch: Float) {
-        val cy = cos(yaw); val sy = sin(yaw)
-        val cp = cos(pitch); val sp = sin(pitch)
-        // R = Ry(yaw) * Rx(pitch)
-        out[0] = cy; out[1] = 0f; out[2] = sy
-        out[3] = 0f; out[4] = 1f; out[5] = 0f
-        out[6] = -sy; out[7] = 0f; out[8] = cy
-        val rx = floatArrayOf(
-            1f, 0f, 0f,
-            0f, cp, -sp,
-            0f, sp, cp
-        )
-        val r = FloatArray(9)
-        Matrix.multiplyMM(r, 0, out, 0, rx, 0)
-        System.arraycopy(r, 0, out, 0, 9)
     }
 
     private fun buildSphere(latSegments: Int, lonSegments: Int) {
@@ -237,6 +226,7 @@ class EquirectRenderer : android.opengl.GLSurfaceView.Renderer {
         val program = GLES20.glCreateProgram()
         GLES20.glAttachShader(program, vs)
         GLES20.glAttachShader(program, fs)
+        GLES20.glBindAttribLocation(program, 0, "aPosition")
         GLES20.glLinkProgram(program)
         GLES20.glDeleteShader(vs)
         GLES20.glDeleteShader(fs)

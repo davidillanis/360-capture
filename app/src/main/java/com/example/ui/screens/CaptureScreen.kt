@@ -7,6 +7,8 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +23,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -85,6 +88,10 @@ fun CaptureScreen(
     onProjectionSelected: (ProjectionMode) -> Unit,
     onShutterClick: () -> Unit,
     onGalleryClick: () -> Unit,
+    coverageFraction: Double = 0.0,
+    deviceAzimuth: Float = 0f,
+    onFinishCapture: () -> Unit = {},
+    onResetCapture: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -247,7 +254,7 @@ fun CaptureScreen(
         HorizonGuide(
             rollOffset = deviceRoll,
             pitchOffset = devicePitch,
-            instructionText = captureStatusText,
+            instructionText = "Azimut %.0f° · elevación %+.0f°".format(deviceAzimuth, devicePitch),
             modifier = Modifier.align(Alignment.Center)
         )
 
@@ -259,6 +266,23 @@ fun CaptureScreen(
                 .padding(horizontal = 16.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Text(
+                text = "%.1f%% de cobertura estimada · %d fotos".format(coverageFraction * 100, currentSlice),
+                color = ImmersiveLilac,
+                style = Typography.labelLarge
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TextButton(
+                    onClick = onResetCapture,
+                    enabled = currentSlice > 0 && !isCapturing
+                ) { Text("Reiniciar") }
+                TextButton(
+                    onClick = onFinishCapture,
+                    enabled = currentSlice > 0 && !isCapturing,
+                    modifier = Modifier.testTag("finish_capture_button")
+                ) { Text(if (isSphereComplete) "Ver panorama" else "Ver panorama parcial") }
+            }
+
             QuickSettingsPills(
                 evValue = evValue,
                 isHdr = isHdr,
@@ -271,11 +295,12 @@ fun CaptureScreen(
 
             ShutterControls(
                 recentThumbnailUrl = recentThumbnailUrl.orEmpty(),
-                coveredCount = currentSlice,
+                coveredCount = coveredCells.size,
                 totalCells = totalSlices,
                 isSphereComplete = isSphereComplete,
                 onThumbnailClick = onGalleryClick,
-                onShutterClick = onShutterClick
+                onShutterClick = onShutterClick,
+                isCapturing = isCapturing
             )
         }
 

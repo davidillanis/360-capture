@@ -1,11 +1,8 @@
 package com.example.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,16 +21,10 @@ import androidx.compose.material.icons.filled.Panorama
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -58,14 +49,9 @@ fun ShutterControls(
     isSphereComplete: Boolean,
     onThumbnailClick: () -> Unit,
     onShutterClick: () -> Unit,
+    isCapturing: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    var isPressed by remember { mutableStateOf(false) }
-    val shutterScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.92f else 1.0f,
-        animationSpec = tween(durationMillis = 100),
-        label = "shutterScale"
-    )
 
     Box(
         modifier = modifier
@@ -118,19 +104,9 @@ fun ShutterControls(
             Box(
                 modifier = Modifier
                     .size(80.dp)
-                    .scale(shutterScale)
                     .clip(CircleShape)
                     .background(SurfaceContainer)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onPress = {
-                                isPressed = true
-                                tryAwaitRelease()
-                                isPressed = false
-                                onShutterClick()
-                            }
-                        )
-                    }
+                    .clickable(enabled = !isCapturing, onClick = onShutterClick)
                     .testTag("shutter_capture_button"),
                 contentAlignment = Alignment.Center
             ) {
@@ -160,7 +136,7 @@ fun ShutterControls(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Panorama,
-                        contentDescription = "Capture Panorama",
+                        contentDescription = if (isCapturing) "Capturando" else "Tomar fotografía",
                         tint = ImmersiveDeepPurple,
                         modifier = Modifier.size(28.dp)
                     )

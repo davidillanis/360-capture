@@ -2,27 +2,37 @@ package com.example.camera
 
 import android.content.Context
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CameraCharacteristics
+import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.util.Log
 import android.view.Surface
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraInfo
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.example.model.IsoMode
+import com.example.stitching.CameraIntrinsics
+import com.example.stitching.CameraPose
+import com.example.stitching.ImageUtils
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 
-/**
- * Owns the CameraX preview + image capture pipeline for the capture screen.
- */
+data class CapturedPhoto(val pose: CameraPose, val intrinsics: CameraIntrinsics)
+
+/** Owns CameraX and attaches the optical geometry of each upright JPEG. */
+@androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
 class CameraController(context: Context) {
 
     private val appContext = context.applicationContext
@@ -31,6 +41,9 @@ class CameraController(context: Context) {
     private var imageCapture: ImageCapture? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var bound = false
+    private var cameraInfo: CameraInfo? = null
+    private var previewView: PreviewView? = null
+    private var bindingGeneration = 0
 
     /** Binds preview + capture for the back camera. Must be called on the main thread. */
     fun bind(
@@ -40,8 +53,10 @@ class CameraController(context: Context) {
         evCompensation: Int = 0,
         onReady: (Boolean) -> Unit = {}
     ) {
+        val generation = ++bindingGeneration
         val providerFuture = ProcessCameraProvider.getInstance(appContext)
         providerFuture.addListener({
+            if (generation != bindingGeneration) return@addListener
             try {
                 val provider = providerFuture.get()
                 cameraProvider = provider
@@ -65,7 +80,9 @@ class CameraController(context: Context) {
 
                 val capture = captureBuilder.build()
                 provider.unbindAll()
-                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+                val camera = provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+                cameraInfo = camera.cameraInfo
+                this.previewView = previewView
                 preview.setSurfaceProvider(previewView.surfaceProvider)
                 imageCapture = capture
                 bound = true
@@ -79,21 +96,44 @@ class CameraController(context: Context) {
     }
 
     /** Suspends until a photo has been written to [outputFile]. */
-    suspend fun takePicture(outputFile: File): Boolean {
-        val capture = imageCapture ?: return false
+    suspend fun takePicture(outputFile: File, orientationAtExposure: (Int) -> CameraPose?): CapturedPhoto? {
+        val capture = imageCapture ?: return null
+        val info = cameraInfo ?: return null
+        val rotation = previewView?.display?.rotation ?: Surface.ROTATION_0
+        capture.targetRotation = rotation
+        val displayDegrees = when (rotation) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+        val sensorRotation = info.getSensorRotationDegrees(rotation)
         return suspendCancellableCoroutine { continuation ->
             val options = ImageCapture.OutputFileOptions.Builder(outputFile).build()
+            var pose: CameraPose? = null
             capture.takePicture(
                 options,
                 executor,
                 object : ImageCapture.OnImageSavedCallback {
+                    override fun onCaptureStarted() {
+                        pose = orientationAtExposure(displayDegrees)
+                    }
+
                     override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                        continuation.resume(true)
+                        val result = try {
+                            pose?.let { CapturedPhoto(it, readIntrinsics(outputFile, info, sensorRotation)) }
+                        } catch (error: Exception) {
+                            Log.e(TAG, "Could not read camera geometry", error)
+                            null
+                        }
+                        if (result == null || !continuation.isActive) outputFile.delete()
+                        if (continuation.isActive) continuation.resume(result)
                     }
 
                     override fun onError(exception: ImageCaptureException) {
                         Log.e(TAG, "Capture failed: ${exception.message}", exception)
-                        continuation.resume(false)
+                        outputFile.delete()
+                        if (continuation.isActive) continuation.resume(null)
                     }
                 }
             )
@@ -101,12 +141,42 @@ class CameraController(context: Context) {
     }
 
     fun unbind() {
+        bindingGeneration++
         try {
             cameraProvider?.unbindAll()
         } catch (_: Exception) {
         }
         imageCapture = null
         bound = false
+        cameraInfo = null
+        previewView = null
+    }
+
+    fun close() {
+        unbind()
+        executor.shutdown()
+    }
+
+    private fun readIntrinsics(file: File, info: CameraInfo, sensorRotation: Int): CameraIntrinsics {
+        val camera2 = Camera2CameraInfo.from(info)
+        val physical = requireNotNull(camera2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE))
+        val pixelArray = requireNotNull(camera2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE))
+        val active = requireNotNull(camera2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE))
+        val exif = ExifInterface(file.absolutePath)
+        val fallbackFocal = camera2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+            ?.firstOrNull()?.toDouble() ?: 0.0
+        val focal = exif.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH, fallbackFocal)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        val swap = ImageUtils.exifRotation(file) % 180 != 0
+        return CameraIntrinsics.fromSensor(
+            width = if (swap) bounds.outHeight else bounds.outWidth,
+            height = if (swap) bounds.outWidth else bounds.outHeight,
+            sensorWidthMm = physical.width.toDouble() * active.width() / pixelArray.width,
+            sensorHeightMm = physical.height.toDouble() * active.height() / pixelArray.height,
+            focalLengthMm = focal,
+            sensorRotationDegrees = sensorRotation
+        )
     }
 
     fun isBound(): Boolean = bound

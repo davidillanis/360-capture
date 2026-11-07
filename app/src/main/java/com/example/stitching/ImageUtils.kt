@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
-import android.os.Build
 import java.io.File
 import java.io.FileOutputStream
 
@@ -26,7 +25,7 @@ object ImageUtils {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options) ?: return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        val bitmap = requireNotNull(BitmapFactory.decodeFile(file.absolutePath, options)) { "No se pudo leer ${file.name}" }
 
         val rotation = exifRotation(file)
         return if (rotation != 0) {
@@ -41,11 +40,7 @@ object ImageUtils {
 
     fun exifRotation(file: File): Int {
         return try {
-            val exif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                ExifInterface(file)
-            } else {
-                ExifInterface(file.absolutePath)
-            }
+            val exif = ExifInterface(file.absolutePath)
             when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
                 ExifInterface.ORIENTATION_ROTATE_90 -> 90
                 ExifInterface.ORIENTATION_ROTATE_180 -> 180
@@ -84,11 +79,7 @@ object ImageUtils {
     /** Horizontal FOV estimate in degrees, from EXIF 35mm focal length when available. */
     fun fovHorizontalDegrees(file: File, fallback: Float = 67f): Float {
         return try {
-            val exif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                ExifInterface(file)
-            } else {
-                ExifInterface(file.absolutePath)
-            }
+            val exif = ExifInterface(file.absolutePath)
             val focal35 = exif.getAttributeInt(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, 0)
             if (focal35 > 0) {
                 (2.0 * Math.toDegrees(Math.atan(36.0 / (2.0 * focal35)))).toFloat()
@@ -108,7 +99,6 @@ object ImageUtils {
         val w = (bitmap.width * scale).toInt()
         val h = (bitmap.height * scale).toInt()
         val scaled = Bitmap.createScaledBitmap(bitmap, w, h, true)
-        if (scaled !== bitmap) bitmap.recycle()
         return scaled
     }
 }

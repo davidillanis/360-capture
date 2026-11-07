@@ -25,8 +25,8 @@ import com.example.ui.theme.SurfaceContainerHighest
 
 /**
  * Representa la cobertura de la esfera 360° como una rejilla de celdas
- * (filas = elevación, columnas = azimut). Cada foto tomada rellena la
- * celda hacia la que apuntaba el dispositivo.
+ * (filas = elevación, columnas = azimut). Una celda se rellena cuando
+ * sus rayos muestreados quedan cubiertos por las fotografías.
  */
 @Composable
 fun SphereCoverageGrid(

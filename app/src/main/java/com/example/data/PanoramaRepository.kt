@@ -3,6 +3,7 @@ package com.example.data
 import android.content.Context
 import com.example.model.SavedPanorama
 import com.example.stitching.ImageUtils
+import com.example.stitching.CoverageSummary
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -38,7 +39,17 @@ class PanoramaRepository(context: Context) {
                             location = o.optString("location"),
                             iso = o.optString("iso"),
                             ev = o.optString("ev"),
-                            hdr = o.optBoolean("hdr")
+                            hdr = o.optBoolean("hdr"),
+                            coverage = o.optJSONObject("coverage")?.let { coverage ->
+                                CoverageSummary(
+                                    fraction = coverage.getDouble("fraction"),
+                                    missingPixels = coverage.getInt("missingPixels"),
+                                    width = coverage.getInt("width"),
+                                    height = coverage.getInt("height"),
+                                    zenithCovered = coverage.getBoolean("zenithCovered"),
+                                    nadirCovered = coverage.getBoolean("nadirCovered")
+                                )
+                            }
                         )
                     )
                 }
@@ -90,6 +101,16 @@ class PanoramaRepository(context: Context) {
                     put("iso", p.iso)
                     put("ev", p.ev)
                     put("hdr", p.hdr)
+                    p.coverage?.let { coverage ->
+                        put("coverage", JSONObject().apply {
+                            put("fraction", coverage.fraction)
+                            put("missingPixels", coverage.missingPixels)
+                            put("width", coverage.width)
+                            put("height", coverage.height)
+                            put("zenithCovered", coverage.zenithCovered)
+                            put("nadirCovered", coverage.nadirCovered)
+                        })
+                    }
                 }
             )
         }

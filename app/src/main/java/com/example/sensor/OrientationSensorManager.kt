@@ -5,98 +5,82 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.SystemClock
+import android.view.Surface
+import android.view.WindowManager
+import com.example.stitching.CameraPose
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.abs
+import kotlin.math.atan2
 
 data class OrientationData(
-    val pitch: Float = 0f,   // Vertical tilt (-90 to +90)
-    val roll: Float = 0f,    // Horizontal level tilt (-180 to +180)
-    val azimuth: Float = 0f, // Rotation around 360 (-180 to +180 or 0 to 360)
-    val unwrappedAzimuth: Float = 0f, // Continuous rotation angle, never wraps
-    val isLevel: Boolean = true
+    val pitch: Float = 0f, // Elevation of the back camera, positive upwards.
+    val roll: Float = 0f,
+    val azimuth: Float = 0f,
+    val unwrappedAzimuth: Float = 0f,
+    val isLevel: Boolean = false,
+    val pose: CameraPose? = null,
+    val timestampNanos: Long = 0L
 )
 
 class OrientationSensorManager(context: Context) : SensorEventListener {
-
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+    private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val rotationSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        ?: sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        ?: sensorManager?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+    val isAvailable: Boolean get() = rotationSensor != null
 
+    private data class Sample(val matrix: FloatArray, val timestampNanos: Long)
+    @Volatile private var latest: Sample? = null
     private val _orientationFlow = MutableStateFlow(OrientationData())
     val orientationFlow: StateFlow<OrientationData> = _orientationFlow.asStateFlow()
-
-    private val rotationMatrix = FloatArray(9)
-    private val orientationAngles = FloatArray(3)
-
-    private var lastAzimuthDeg = 0f
-    private var unwrappedAzimuthDeg = 0f
-    private var initialized = false
+    private var lastAzimuth: Float? = null
+    private var unwrappedAzimuth = 0f
 
     fun startListening() {
-        rotationSensor?.let {
-            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
-        }
+        rotationSensor?.let { sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
     }
 
     fun stopListening() {
         sensorManager?.unregisterListener(this)
+        latest = null
     }
 
-    private fun unwrap(azimuthDeg: Float): Float {
-        if (!initialized) {
-            lastAzimuthDeg = azimuthDeg
-            unwrappedAzimuthDeg = azimuthDeg
-            initialized = true
-            return azimuthDeg
-        }
-        var delta = azimuthDeg - lastAzimuthDeg
-        if (delta > 180f) delta -= 360f
-        if (delta < -180f) delta += 360f
-        lastAzimuthDeg = azimuthDeg
-        unwrappedAzimuthDeg += delta
-        return unwrappedAzimuthDeg
+    /** Snapshot at capture-start, in the same upright orientation as the saved JPEG. */
+    fun snapshot(displayRotationDegrees: Int): OrientationData? {
+        val sample = latest ?: return null
+        if (SystemClock.elapsedRealtimeNanos() - sample.timestampNanos > 1_000_000_000L) return null
+        val pose = CameraPose.fromDeviceRotation(sample.matrix, displayRotationDegrees)
+        val pitch = pose.forward.elevation.toFloat()
+        val roll = Math.toDegrees(atan2(pose.right.z, pose.up.z)).toFloat()
+        return OrientationData(
+            pitch = pitch, roll = roll, azimuth = pose.forward.azimuth.toFloat(),
+            isLevel = abs(pitch) < 5 && abs(roll) < 5,
+            pose = pose, timestampNanos = sample.timestampNanos
+        )
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
-
-        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
-            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-            SensorManager.getOrientation(rotationMatrix, orientationAngles)
-
-            val azimuth = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
-            val pitch = Math.toDegrees(orientationAngles[1].toDouble()).toFloat()
-            val roll = Math.toDegrees(orientationAngles[2].toDouble()).toFloat()
-
-            // Is reasonably level (pitch near 0 and roll near 0)
-            val isLevel = abs(pitch) < 5f && abs(roll) < 5f
-
-            _orientationFlow.value = OrientationData(
-                pitch = pitch,
-                roll = roll,
-                azimuth = (azimuth + 360f) % 360f,
-                unwrappedAzimuth = unwrap((azimuth + 360f) % 360f),
-                isLevel = isLevel
-            )
-        } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-            val ax = event.values[0]
-            val ay = event.values[1]
-            val az = event.values[2]
-
-            val roll = (ax * 5f).coerceIn(-30f, 30f)
-            val pitch = ((ay - 9.8f) * 4f).coerceIn(-30f, 30f)
-            val isLevel = abs(roll) < 3f && abs(pitch) < 3f
-
-            _orientationFlow.value = OrientationData(
-                pitch = pitch,
-                roll = roll,
-                azimuth = 0f,
-                isLevel = isLevel
-            )
+        val matrix = FloatArray(9)
+        SensorManager.getRotationMatrixFromVector(matrix, event.values)
+        latest = Sample(matrix, event.timestamp)
+        @Suppress("DEPRECATION")
+        val rotation = when (windowManager.defaultDisplay.rotation) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
         }
+        val orientation = snapshot(rotation) ?: return
+        val previous = lastAzimuth
+        unwrappedAzimuth = if (previous == null) orientation.azimuth else
+            unwrappedAzimuth + (orientation.azimuth - previous + 540f) % 360f - 180f
+        lastAzimuth = orientation.azimuth
+        _orientationFlow.value = orientation.copy(unwrappedAzimuth = unwrappedAzimuth)
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 }

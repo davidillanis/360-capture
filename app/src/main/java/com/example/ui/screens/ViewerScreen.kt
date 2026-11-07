@@ -69,6 +69,7 @@ fun ViewerScreen(
     onBackClick: () -> Unit,
     onSaveToGallery: () -> Unit,
     onRetakeClick: () -> Unit,
+    coverageText: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -292,6 +293,9 @@ fun ViewerScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    coverageText?.let {
+                        Text(text = it, color = ImmersiveLilac, style = Typography.bodySmall)
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()

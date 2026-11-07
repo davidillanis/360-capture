@@ -1,5 +1,7 @@
 package com.example.model
 
+import com.example.stitching.CoverageSummary
+
 enum class ScreenState {
     CAPTURE,
     PROCESSING,
@@ -24,7 +26,7 @@ enum class IsoMode(val label: String) {
 }
 
 enum class StitchingEngine(val label: String, val subtitle: String) {
-    OPENCV("OpenCV Engine", "High-precision feature matching & multiband blending"),
+    OPENCV("OpenCV · Esfera", "Proyección por orientación y óptica de cada foto, con fusión suave"),
     NEURAL_AI("Neural AI Synthesis", "Deep generative seam fill & HDR relighting"),
     FAST_CYLINDRICAL("Fast Cylindrical", "Low latency real-time projection")
 }
@@ -53,18 +55,19 @@ data class SavedPanorama(
     val location: String = "Dolomites Alps, 2,750m",
     val iso: String = "ISO 100",
     val ev: String = "EV 0.0",
-    val hdr: Boolean = true
+    val hdr: Boolean = true,
+    val coverage: CoverageSummary? = null
 )
 
 /**
  * Modela la cobertura de una esfera 360° como una rejilla de celdas
  * definida por bandas de azimut (columnas) y bandas de elevación (filas).
- * El usuario debe tomar una foto apuntando a cada celda para completar
- * el panorama completo.
+ * Es una visualización de cobertura, no un número fijo de fotografías.
+ * Una celda se completa cuando todos sus rayos muestreados están cubiertos.
  */
 object SphereGrid {
 
-    /** Número de bandas horizontales (azimut). Con ~67° de FOV, 6 columnas de 60° cubren 360°. */
+    /** Bandas de la visualización; el campo de visión se obtiene de cada cámara. */
     const val AZIMUTH_COLS = 6
 
     /** Número de bandas verticales (elevación). Fila 0 = arriba, fila última = abajo. */

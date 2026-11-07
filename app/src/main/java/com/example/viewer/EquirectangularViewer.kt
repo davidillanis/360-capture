@@ -12,6 +12,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -43,13 +45,20 @@ fun EquirectangularViewer(
         }
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            view.setPanorama(null)
             view.onPause()
         }
     }
 
     LaunchedEffect(panoramaFile) {
-        val bitmap: Bitmap? = panoramaFile?.let { loadBitmap(it) }
-        view.setPanorama(bitmap)
+        var bitmap: Bitmap? = null
+        try {
+            withContext(Dispatchers.IO) { bitmap = panoramaFile?.let { loadBitmap(it) } }
+            view.setPanorama(bitmap)
+            bitmap = null // The GL thread now owns the bitmap.
+        } finally {
+            bitmap?.recycle()
+        }
     }
 
     LaunchedEffect(azimuthDeg, pitchDeg, sensorEnabled) {

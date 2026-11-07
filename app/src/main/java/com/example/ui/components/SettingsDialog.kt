@@ -109,7 +109,7 @@ fun SettingsDialog(
                 )
                 Spacer(modifier = Modifier.height(10.dp))
 
-                StitchingEngine.values().forEach { engine ->
+                listOf(StitchingEngine.OPENCV).forEach { engine ->
                     val isSelected = engine == selectedEngine
                     Box(
                         modifier = Modifier
@@ -167,7 +167,7 @@ fun SettingsDialog(
                 )
                 Spacer(modifier = Modifier.height(10.dp))
 
-                ProjectionMode.values().forEach { projection ->
+                listOf(ProjectionMode.EQUIRECTANGULAR).forEach { projection ->
                     val isSelected = projection == selectedProjection
                     Box(
                         modifier = Modifier
