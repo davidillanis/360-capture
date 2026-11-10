@@ -46,7 +46,12 @@ object GuidedCapturePlanner {
     }
 }
 
-data class CaptureHold(val progress: Float = 0f, val aligned: Boolean = false, val ready: Boolean = false)
+data class CaptureHold(
+    val progress: Float = 0f,
+    val aligned: Boolean = false,
+    val ready: Boolean = false,
+    val moving: Boolean = false
+)
 
 /** Pure, timestamp-based shutter gate. No timer can fire while the user is moving or the app is paused. */
 class GuidedCaptureGate {
@@ -56,6 +61,7 @@ class GuidedCaptureGate {
     private var stableSince = 0L
     private var fired = false
     private var currentTarget: CaptureTarget? = null
+    private var fastSamples = 0
 
     fun reset() {
         previousPose = null
@@ -64,6 +70,7 @@ class GuidedCaptureGate {
         stableSince = 0L
         fired = false
         currentTarget = null
+        fastSamples = 0
     }
 
     fun update(pose: CameraPose, target: CaptureTarget, timeNanos: Long): CaptureHold {
@@ -74,27 +81,46 @@ class GuidedCaptureGate {
         if (fired) return CaptureHold(1f, aligned = true)
         val pointingError = angularDistance(pose.forward, target.direction)
         val roll = Math.toDegrees(atan2(pose.right.z, pose.up.z))
-        val aligned = pointingError <= 3.0 && (abs(target.elevation) > 80 || abs(roll) <= 8.0)
+        // Once the hold starts, allow a little hysteresis so sensor jitter at 3° does not
+        // repeatedly switch the countdown on and off.
+        val aligned = pointingError <= (if (anchor == null) 3.0 else 4.0) &&
+            (abs(target.elevation) > 80 || abs(roll) <= (if (anchor == null) 8.0 else 11.0))
         val dt = timeNanos - previousTime
         val oldPose = previousPose
         val continuous = oldPose != null && dt in 1..250_000_000L
         val speed = if (continuous) poseDistance(oldPose!!, pose) / (dt / 1e9) else Double.POSITIVE_INFINITY
         previousPose = pose
         previousTime = timeNanos
-        if (!aligned || speed > 2.5 || (anchor != null && poseDistance(anchor!!, pose) > 0.8)) {
+        if (!continuous || !aligned || (anchor != null && poseDistance(anchor!!, pose) > 1.5)) {
             anchor = null
             stableSince = 0L
+            fastSamples = 0
             return CaptureHold(aligned = aligned)
+        }
+        // A noisy sample can jump away and back in two readings. Only treat repeated
+        // high velocity as real movement when the phone has also left its hold position.
+        fastSamples = if (speed > 12.0 && anchor != null && poseDistance(anchor!!, pose) > 0.9) fastSamples + 1 else 0
+        if (fastSamples >= 2) {
+            anchor = null
+            stableSince = 0L
+            return CaptureHold(aligned = aligned, moving = true)
         }
         if (anchor == null) {
             anchor = pose
             stableSince = timeNanos
         }
         val progress = ((timeNanos - stableSince) / 850_000_000.0).coerceIn(0.0, 1.0).toFloat()
-        val ready = progress >= 1f
+        val ready = progress >= 1f && fastSamples == 0
         fired = ready
-        return CaptureHold(progress, aligned, ready)
+        return CaptureHold(progress, aligned, ready, moving = fastSamples > 0)
     }
+}
+
+/** Manual fallback still needs the actual camera aimed near the next planned photo. */
+fun canCaptureManually(pose: CameraPose?, target: CaptureTarget?): Boolean {
+    if (pose == null || target == null || angularDistance(pose.forward, target.direction) > 6.0) return false
+    val roll = Math.toDegrees(atan2(pose.right.z, pose.up.z))
+    return abs(target.elevation) > 80 || abs(roll) <= 12.0
 }
 
 fun angularDistance(a: Direction, b: Direction): Double = Math.toDegrees(acos(a.dot(b).coerceIn(-1.0, 1.0)))

@@ -7,14 +7,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +26,7 @@ import com.example.model.ScreenState
 import com.example.ui.PanoramaViewModel
 import com.example.ui.screens.CaptureScreen
 import com.example.ui.screens.GalleryScreen
+import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.ProcessingScreen
 import com.example.ui.screens.ViewerScreen
 import com.example.ui.theme.BackgroundDark
@@ -60,13 +60,8 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // Hardware back press navigation
-                BackHandler(enabled = uiState.screenState != ScreenState.CAPTURE) {
-                    when (uiState.screenState) {
-                        ScreenState.VIEWER -> viewModel.openCapture()
-                        ScreenState.GALLERY -> viewModel.openCapture()
-                        ScreenState.PROCESSING -> viewModel.openCapture()
-                        ScreenState.CAPTURE -> {}
-                    }
+                BackHandler(enabled = uiState.screenState != ScreenState.HOME) {
+                    viewModel.goBack()
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -74,57 +69,43 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = BackgroundDark
                     ) {
-                    Crossfade(
-                        targetState = uiState.screenState,
-                        label = "screen_transition"
-                    ) { state ->
-                        when (state) {
+                        when (uiState.screenState) {
+                            ScreenState.HOME -> {
+                                HomeScreen(
+                                    savedCount = uiState.savedPanoramas.size,
+                                    hasPendingCapture = uiState.hasPendingCapture,
+                                    onCreatePhoto = viewModel::retake,
+                                    onContinueCapture = viewModel::openCapture,
+                                    onOpenGallery = viewModel::openGallery
+                                )
+                            }
                             ScreenState.CAPTURE -> {
                                 CaptureScreen(
                                     currentSlice = uiState.currentSlice,
-                                    totalSlices = uiState.totalSlices,
-                                    coveredCells = uiState.coveredCells,
-                                    aimCell = uiState.aimCell,
-                                    isSphereComplete = uiState.isSphereComplete,
-                                    coverageFraction = uiState.coverageFraction,
-                                    deviceAzimuth = uiState.orientation.azimuth,
+                                    plannedPhotos = uiState.plannedPhotos,
                                     isCapturing = uiState.isCapturing,
-                                    captureStatusText = uiState.captureStatusText,
                                     isAutoCapturing = uiState.isAutoCapturing,
                                     captureTarget = uiState.captureTarget,
                                     previewIntrinsics = uiState.previewIntrinsics,
                                     cameraPose = uiState.orientation.pose,
                                     holdProgress = uiState.holdProgress,
+                                    captureStatusText = uiState.captureStatusText,
                                     onCaptureActive = viewModel::setCaptureActive,
-                                    evValue = uiState.evValue,
-                                    isHdr = uiState.isHdr,
-                                    isoMode = uiState.isoMode,
-                                    selectedEngine = uiState.stitchingEngine,
-                                    selectedProjection = uiState.projectionMode,
-                                    recentThumbnailUrl = uiState.recentThumbnailUrl,
-                                    deviceRoll = uiState.orientation.roll,
-                                    devicePitch = uiState.orientation.pitch,
                                     hasCameraPermission = viewModel.hasCameraPermission(),
                                     onCameraReady = viewModel::attachCamera,
                                     onCameraDispose = viewModel::detachCamera,
-                                    onEvChange = viewModel::setEv,
-                                    onHdrToggle = viewModel::toggleHdr,
-                                    onIsoCycle = viewModel::cycleIso,
-                                    onEngineSelected = viewModel::setEngine,
-                                    onProjectionSelected = viewModel::setProjection,
                                     onShutterClick = viewModel::onShutterClick,
+                                    onManualCapture = viewModel::onManualCapture,
                                     onFinishCapture = viewModel::finishCapture,
                                     onResetCapture = viewModel::retake,
-                                    onGalleryClick = viewModel::openGallery
+                                    onBackClick = viewModel::openHome
                                 )
                             }
                             ScreenState.PROCESSING -> {
                                 ProcessingScreen(
                                     stitchingProgress = uiState.stitchingProgress,
-                                    engine = uiState.stitchingEngine,
-                                    totalImages = uiState.currentSlice,
-                                    currentStepText = uiState.stitchingStepText,
-                                    sliceThumbnails = uiState.sliceThumbnails
+                                    isSaving = uiState.isSaving,
+                                    onBackToCapture = viewModel::openCapture
                                 )
                             }
                             ScreenState.VIEWER -> {
@@ -132,14 +113,14 @@ class MainActivity : ComponentActivity() {
                                     panoramaPath = uiState.activePanoramaPath,
                                     deviceAzimuth = uiState.orientation.azimuth,
                                     devicePitch = uiState.orientation.pitch,
-                                    coverageText = uiState.activeCoverage?.let {
-                                        "${it.label}\n${it.missingPixels} píxeles sin cubrir de ${it.width * it.height}." +
-                                            uiState.alignmentText?.let { text -> "\n$text" }.orEmpty()
-                                    },
+                                    isSaved = uiState.savedPanoramas.any { it.panoramaUrl == uiState.activePanoramaPath },
+                                    isSaving = uiState.isSaving,
+                                    canContinueCapture = uiState.canContinueCapture,
                                     coverage = uiState.activeCoverage,
-                                    onBackClick = viewModel::openCapture,
-                                    onSaveToGallery = viewModel::saveToGallery,
-                                    onRetakeClick = viewModel::retake
+                                    onBackClick = viewModel::openGallery,
+                                    onRetrySave = viewModel::saveToGallery,
+                                    onNewCapture = viewModel::retake,
+                                    onContinueCapture = viewModel::openCapture
                                 )
                             }
                             ScreenState.GALLERY -> {
@@ -147,17 +128,18 @@ class MainActivity : ComponentActivity() {
                                     savedPanoramas = uiState.savedPanoramas,
                                     onSelectPanorama = viewModel::selectPanoramaFromGallery,
                                     onDeletePanorama = viewModel::deletePanorama,
-                                    onBackToCapture = viewModel::openCapture
+                                    onBackClick = viewModel::openHome,
+                                    onCreatePhoto = viewModel::retake
                                 )
                             }
                         }
-                    }
                     }
 
                     SnackbarHost(
                         hostState = snackbarHostState,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
+                            .safeDrawingPadding()
                             .padding(bottom = 24.dp)
                     )
                 }

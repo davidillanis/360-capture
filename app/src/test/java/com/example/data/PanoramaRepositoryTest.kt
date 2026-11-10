@@ -16,6 +16,35 @@ import java.io.File
 @Config(sdk = [36])
 class PanoramaRepositoryTest {
     @Test
+    fun `completing a partial photo updates one gallery entry and a failed retry preserves it`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = PanoramaRepository(context)
+        val source = File.createTempFile("capture", ".jpg", context.cacheDir).apply { writeText("partial photo") }
+        val metadata = SavedPanorama("auto-save-test", "Foto", previewUrl = "", panoramaUrl = "")
+        try {
+            val partial = repository.save(metadata, source, source)
+            source.writeText("complete photo")
+            val complete = repository.save(metadata.copy(sliceCount = 40), source, source)
+            assertEquals(1, repository.loadAll().count { it.id == metadata.id })
+            assertEquals(40, repository.loadAll().single { it.id == metadata.id }.sliceCount)
+            assertEquals("complete photo", File(complete.panoramaUrl).readText())
+            assertFalse(File(partial.panoramaUrl).exists())
+
+            source.writeText("incomplete write")
+            try {
+                repository.save(metadata, source, File(context.cacheDir, "missing-thumbnail.jpg"))
+                fail("A missing thumbnail must fail the save")
+            } catch (_: java.io.IOException) {
+                assertEquals(complete, repository.loadAll().single { it.id == metadata.id })
+                assertEquals("complete photo", File(complete.panoramaUrl).readText())
+            }
+        } finally {
+            repository.delete(metadata.id)
+            source.delete()
+        }
+    }
+
+    @Test
     fun `coverage survives saving and old panoramas without coverage still load`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repository = PanoramaRepository(context)

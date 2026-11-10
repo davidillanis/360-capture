@@ -1,10 +1,6 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,43 +8,35 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Panorama
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.model.SavedPanorama
-import com.example.ui.components.ImmersiveAtmosphereBackground
-import com.example.ui.theme.BackgroundDark
-import com.example.ui.theme.GlassBackground
-import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.ImmersiveLilac
-import com.example.ui.theme.OnSurface
-import com.example.ui.theme.Secondary
-import com.example.ui.theme.SurfaceContainer
-import com.example.ui.theme.Typography
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -59,206 +47,61 @@ fun GalleryScreen(
     savedPanoramas: List<SavedPanorama>,
     onSelectPanorama: (SavedPanorama) -> Unit,
     onDeletePanorama: (String) -> Unit,
-    onBackToCapture: () -> Unit,
+    onBackClick: () -> Unit,
+    onCreatePhoto: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val dateFormatter = SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.getDefault())
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(BackgroundDark)
-            .testTag("gallery_screen_root")
-    ) {
-        ImmersiveAtmosphereBackground()
-
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Header
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(56.dp)
-                    .background(GlassBackground)
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                IconButton(
-                    onClick = onBackToCapture,
-                    modifier = Modifier.align(Alignment.CenterStart)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Secondary
-                    )
-                }
-
-                Text(
-                    text = "360 Gallery",
-                    style = Typography.titleMedium,
-                    color = ImmersiveLilac,
-                    fontSize = 17.sp,
-                    letterSpacing = 0.5.sp
-                )
-
-                IconButton(
-                    onClick = onBackToCapture,
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = "Camera",
-                        tint = ImmersiveLilac
-                    )
-                }
+    val dateFormatter = remember { SimpleDateFormat("d MMM yyyy · HH:mm", Locale.forLanguageTag("es")) }
+    Column(modifier.fillMaxSize().safeDrawingPadding().testTag("gallery_screen_root")) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBackClick) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver al inicio") }
+            Text("Mis fotos", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            if (savedPanoramas.isNotEmpty()) {
+                TextButton(onClick = onCreatePhoto) { Text("Crear foto") }
             }
-
-            if (savedPanoramas.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Panorama,
-                            contentDescription = null,
-                            tint = ImmersiveLilac.copy(alpha = 0.6f),
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "No Panoramas Yet",
-                            style = Typography.titleLarge,
-                            color = OnSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Capture your first 360° panoramic photograph",
-                            style = Typography.bodyMedium,
-                            color = Secondary
-                        )
-                    }
+        }
+        if (savedPanoramas.isEmpty()) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
+                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(Icons.Default.Collections, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(24.dp))
+                Text("Tu primera foto empieza aquí", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(8.dp))
+                Text("Las fotos que crees se guardarán automáticamente en este lugar.",
+                    style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center)
+                Spacer(Modifier.height(24.dp))
+                Button(onClick = onCreatePhoto, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Crear foto 360°") }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f), contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    Text("Toca una foto para explorarla y compartirla.", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(savedPanoramas, key = { it.id }) { pano ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(SurfaceContainer)
-                                .border(1.dp, GlassBorder, RoundedCornerShape(24.dp))
-                                .clickable { onSelectPanorama(pano) }
-                                .testTag("panorama_card_${pano.id}")
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                // Panorama Preview
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(180.dp)
-                                ) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current)
-                                            .data(File(pano.previewUrl.takeIf { it.isNotBlank() } ?: pano.panoramaUrl))
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = pano.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-
-                                    // Gradient overlay
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                brush = Brush.verticalGradient(
-                                                    colors = listOf(
-                                                        Color.Transparent,
-                                                        Color(0xCC1C1B1F)
-                                                    )
-                                                )
-                                            )
-                                    )
-
-                                    // 360 Badge in Immersive Lilac
-                                    Box(
-                                        modifier = Modifier
-                                            .padding(12.dp)
-                                            .align(Alignment.TopStart)
-                                            .background(GlassBackground, RoundedCornerShape(9999.dp))
-                                            .border(1.dp, GlassBorder, RoundedCornerShape(9999.dp))
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Text(
-                                            text = "360° RAW",
-                                            style = Typography.labelSmall,
-                                            color = ImmersiveLilac
-                                        )
-                                    }
-
-                                    // Delete action
-                                    IconButton(
-                                        onClick = { onDeletePanorama(pano.id) },
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete",
-                                            tint = Color.White.copy(alpha = 0.8f)
-                                        )
-                                    }
-                                }
-
-                                // Metadata bar
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Text(
-                                        text = pano.title,
-                                        style = Typography.titleMedium,
-                                        color = OnSurface,
-                                        fontSize = 17.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "${dateFormatter.format(Date(pano.timestamp))} • ${pano.location}",
-                                        style = Typography.bodyMedium,
-                                        color = Secondary,
-                                        fontSize = 12.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "${pano.sliceCount} Slices",
-                                            style = Typography.labelSmall,
-                                            color = ImmersiveLilac
-                                        )
-                                        Text("•", color = Secondary)
-                                        Text(
-                                            text = pano.engine,
-                                            style = Typography.labelSmall,
-                                            color = Secondary
-                                        )
-                                        Text("•", color = Secondary)
-                                        Text(
-                                            text = pano.iso,
-                                            style = Typography.labelSmall,
-                                            color = Secondary
-                                        )
-                                    }
-                                }
+                items(savedPanoramas, key = { it.id }) { panorama ->
+                    Card(onClick = { onSelectPanorama(panorama) }, modifier = Modifier.fillMaxWidth().testTag("panorama_card_${panorama.id}")) {
+                        AsyncImage(
+                            model = File(panorama.previewUrl.ifBlank { panorama.panoramaUrl }),
+                            contentDescription = panorama.title, contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().height(160.dp)
+                        )
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(panorama.title, style = MaterialTheme.typography.titleMedium)
+                                Text(dateFormatter.format(Date(panorama.timestamp)), style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (panorama.coverage?.isComplete == false) "Foto incompleta" else "Ver en 360°",
+                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { onDeletePanorama(panorama.id) }) {
+                                Icon(Icons.Default.Delete, "Eliminar ${panorama.title}")
                             }
                         }
                     }

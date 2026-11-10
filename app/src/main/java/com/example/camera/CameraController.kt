@@ -107,14 +107,14 @@ class CameraController(context: Context) {
     }
 
     /** Meter the point being photographed, then retain a common white balance for this binding. */
-    suspend fun prepareCapture(): Boolean {
+    suspend fun prepareCapture(requireFocus: Boolean = true): Boolean {
         val current = camera ?: return false
         val point = SurfaceOrientedMeteringPointFactory(1f, 1f).createPoint(0.5f, 0.5f)
         val focus = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
             .setAutoCancelDuration(3, TimeUnit.SECONDS).build()
         if (current.cameraInfo.isFocusMeteringSupported(focus)) {
             val result = withTimeoutOrNull(2500) { current.cameraControl.startFocusAndMetering(focus).awaitResult() }
-            if (result?.isFocusSuccessful != true) return false
+            if (result?.isFocusSuccessful != true && requireFocus) return false
         }
         if (!whiteBalanceLocked && Camera2CameraInfo.from(current.cameraInfo)
                 .getCameraCharacteristic(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE) == true) {

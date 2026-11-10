@@ -22,6 +22,7 @@ data class OrientationData(
     val unwrappedAzimuth: Float = 0f,
     val isLevel: Boolean = false,
     val pose: CameraPose? = null,
+    val rawPose: CameraPose? = null,
     val timestampNanos: Long = 0L
 )
 
@@ -33,8 +34,9 @@ class OrientationSensorManager(context: Context) : SensorEventListener {
         ?: sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     val isAvailable: Boolean get() = rotationSensor != null
 
-    private data class Sample(val matrix: FloatArray, val timestampNanos: Long)
+    private data class Sample(val matrix: FloatArray, val rawMatrix: FloatArray, val timestampNanos: Long)
     @Volatile private var latest: Sample? = null
+    private val smoother = RotationVectorSmoother()
     private val _orientationFlow = MutableStateFlow(OrientationData())
     val orientationFlow: StateFlow<OrientationData> = _orientationFlow.asStateFlow()
     private var lastAzimuth: Float? = null
@@ -50,6 +52,7 @@ class OrientationSensorManager(context: Context) : SensorEventListener {
     fun stopListening() {
         sensorManager?.unregisterListener(this)
         latest = null
+        smoother.reset()
         listening = false
         lastAzimuth = null
         _orientationFlow.value = OrientationData()
@@ -65,15 +68,19 @@ class OrientationSensorManager(context: Context) : SensorEventListener {
         return OrientationData(
             pitch = pitch, roll = roll, azimuth = pose.forward.azimuth.toFloat(),
             isLevel = abs(pitch) < 5 && abs(roll) < 5,
-            pose = pose, timestampNanos = sample.timestampNanos
+            pose = pose,
+            rawPose = CameraPose.fromDeviceRotation(sample.rawMatrix, displayRotationDegrees),
+            timestampNanos = sample.timestampNanos
         )
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
+        val rawMatrix = FloatArray(9)
+        SensorManager.getRotationMatrixFromVector(rawMatrix, event.values)
         val matrix = FloatArray(9)
-        SensorManager.getRotationMatrixFromVector(matrix, event.values)
-        latest = Sample(matrix, event.timestamp)
+        SensorManager.getRotationMatrixFromVector(matrix, smoother.update(event.values, event.timestamp))
+        latest = Sample(matrix, rawMatrix, event.timestamp)
         @Suppress("DEPRECATION")
         val rotation = when (windowManager.defaultDisplay.rotation) {
             Surface.ROTATION_90 -> 90

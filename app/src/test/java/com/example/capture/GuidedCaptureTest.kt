@@ -47,7 +47,7 @@ class GuidedCaptureTest {
                     1 -> CameraPose.lookingAt(0.0, 0.0, 20.0)
                     2 -> CameraPose.lookingAt(if (i % 2 == 0) 1.0 else -1.0, 0.0)
                     3 -> CameraPose.lookingAt(0.0, 0.0)
-                    else -> CameraPose.lookingAt((i % 20) * 0.06, 0.0) // slow drift > 0.8° within the hold
+                    else -> CameraPose.lookingAt((i % 20) * 0.12, 0.0) // sustained drift beyond the hold window
                 }
                 val dt = if (scenario == 3) 400_000_000L else 50_000_000L
                 assertFalse("scenario $scenario, sample $i", gate.update(pose, target, 1_000_000_000L + i * dt).ready)
@@ -61,5 +61,26 @@ class GuidedCaptureTest {
         val target = CaptureTarget(0.0, 90.0, "zenith")
         val pose = CameraPose.lookingAt(130.0, 90.0, 50.0)
         assertTrue((0..22).any { gate.update(pose, target, 1_000_000_000L + it * 50_000_000L).ready })
+    }
+
+    @Test
+    fun `handheld sensor jitter and brief excursions near the aim threshold do not restart the circle`() {
+        val gate = GuidedCaptureGate()
+        val target = CaptureTarget(0.0, 0.0, "test")
+        val samples = (0..35).map { i ->
+            val yaw = if (i % 7 == 0) 3.3 else 2.7 + (if (i % 2 == 0) 0.18 else -0.18)
+            gate.update(CameraPose.lookingAt(yaw, 0.0), target, 1_000_000_000L + i * 50_000_000L)
+        }
+        assertTrue(samples.any { it.progress > 0.5f })
+        assertEquals(1, samples.count { it.ready })
+    }
+
+    @Test
+    fun `manual fallback requires the next target and an upright phone`() {
+        val target = CaptureTarget(0.0, 0.0, "test")
+        assertTrue(canCaptureManually(CameraPose.lookingAt(5.5, 0.0), target))
+        assertFalse(canCaptureManually(CameraPose.lookingAt(8.0, 0.0), target))
+        assertFalse(canCaptureManually(CameraPose.lookingAt(0.0, 0.0, 20.0), target))
+        assertFalse(canCaptureManually(null, target))
     }
 }

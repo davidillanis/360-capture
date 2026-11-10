@@ -3,6 +3,7 @@ package com.example.model
 import com.example.stitching.CoverageSummary
 
 enum class ScreenState {
+    HOME,
     CAPTURE,
     PROCESSING,
     VIEWER,
