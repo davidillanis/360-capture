@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import android.content.pm.ActivityInfo
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -15,6 +16,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -41,6 +43,14 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                 val snackbarHostState = remember { SnackbarHostState() }
+
+                // Keep the JPEG basis and aiming geometry in the same screen orientation for a session.
+                val lockCaptureRotation = uiState.plannedPhotos > 0
+                DisposableEffect(lockCaptureRotation) {
+                    val previous = requestedOrientation
+                    if (lockCaptureRotation) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
+                    onDispose { if (lockCaptureRotation) requestedOrientation = previous }
+                }
 
                 LaunchedEffect(uiState.errorMessage) {
                     uiState.errorMessage?.let {
@@ -80,6 +90,12 @@ class MainActivity : ComponentActivity() {
                                     deviceAzimuth = uiState.orientation.azimuth,
                                     isCapturing = uiState.isCapturing,
                                     captureStatusText = uiState.captureStatusText,
+                                    isAutoCapturing = uiState.isAutoCapturing,
+                                    captureTarget = uiState.captureTarget,
+                                    previewIntrinsics = uiState.previewIntrinsics,
+                                    cameraPose = uiState.orientation.pose,
+                                    holdProgress = uiState.holdProgress,
+                                    onCaptureActive = viewModel::setCaptureActive,
                                     evValue = uiState.evValue,
                                     isHdr = uiState.isHdr,
                                     isoMode = uiState.isoMode,
@@ -117,7 +133,8 @@ class MainActivity : ComponentActivity() {
                                     deviceAzimuth = uiState.orientation.azimuth,
                                     devicePitch = uiState.orientation.pitch,
                                     coverageText = uiState.activeCoverage?.let {
-                                        "${it.label}\n${it.missingPixels} píxeles sin cubrir de ${it.width * it.height}."
+                                        "${it.label}\n${it.missingPixels} píxeles sin cubrir de ${it.width * it.height}." +
+                                            uiState.alignmentText?.let { text -> "\n$text" }.orEmpty()
                                     },
                                     coverage = uiState.activeCoverage,
                                     onBackClick = viewModel::openCapture,

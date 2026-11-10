@@ -28,8 +28,9 @@ data class OrientationData(
 class OrientationSensorManager(context: Context) : SensorEventListener {
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private val rotationSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        ?: sensorManager?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+    // Relative heading avoids indoor magnetic jumps; image alignment closes gyro drift around the ring.
+    private val rotationSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+        ?: sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     val isAvailable: Boolean get() = rotationSensor != null
 
     private data class Sample(val matrix: FloatArray, val timestampNanos: Long)
@@ -38,14 +39,20 @@ class OrientationSensorManager(context: Context) : SensorEventListener {
     val orientationFlow: StateFlow<OrientationData> = _orientationFlow.asStateFlow()
     private var lastAzimuth: Float? = null
     private var unwrappedAzimuth = 0f
+    private var listening = false
 
     fun startListening() {
+        if (listening) return
+        listening = true
         rotationSensor?.let { sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
     }
 
     fun stopListening() {
         sensorManager?.unregisterListener(this)
         latest = null
+        listening = false
+        lastAzimuth = null
+        _orientationFlow.value = OrientationData()
     }
 
     /** Snapshot at capture-start, in the same upright orientation as the saved JPEG. */

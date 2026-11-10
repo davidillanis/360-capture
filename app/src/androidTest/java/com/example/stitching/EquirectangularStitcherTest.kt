@@ -134,11 +134,12 @@ class EquirectangularStitcherTest {
                 file, CameraPose.lookingAt(0.0, 0.0), CameraIntrinsics(401, 301, 250.0, 250.0)
             ))))
             try {
-                assertEquals(2048, result.bitmap.width)
-                assertEquals(1024, result.bitmap.height)
+                assertEquals(3072, result.bitmap.width)
+                assertEquals(1536, result.bitmap.height)
                 assertFalse(result.coverage.isComplete)
-                assertTrue(android.graphics.Color.red(result.bitmap.getPixel(1024, 512)) > 240)
-                assertEquals(android.graphics.Color.BLACK, result.bitmap.getPixel(1024, 0))
+                assertTrue(android.graphics.Color.red(result.bitmap.getPixel(1536, 768)) > 240)
+                assertEquals(android.graphics.Color.BLACK, result.bitmap.getPixel(1536, 0))
+                assertEquals(0, result.alignment.matchedPairs)
             } finally {
                 result.bitmap.recycle()
             }
@@ -146,6 +147,27 @@ class EquirectangularStitcherTest {
             bitmap.recycle()
             file.delete()
         }
+    }
+
+    @Test
+    fun overlappingDisagreeingObjectsAreNotAveragedIntoTranslucentDuplicates() {
+        val k = CameraIntrinsics(321, 321, 240.0, 240.0)
+        val red = Mat(321, 321, CvType.CV_8UC4, Scalar(200.0, 40.0, 30.0, 255.0))
+        val blue = Mat(321, 321, CvType.CV_8UC4, Scalar(30.0, 40.0, 200.0, 255.0))
+        try {
+            EquirectangularStitcher(160).use { stitcher ->
+                stitcher.add(red, CameraPose.lookingAt(350.0, 0.0), k)
+                stitcher.add(blue, CameraPose.lookingAt(10.0, 0.0), k)
+                val result = stitcher.finish()
+                try {
+                    for (x in 140..180) {
+                        val pixel = result.image.get(80, x)
+                        assertTrue("Blended disagreement at $x: ${pixel.toList()}",
+                            (pixel[0] > 195 && pixel[2] < 35) || (pixel[2] > 195 && pixel[0] < 35))
+                    }
+                } finally { result.image.release() }
+            }
+        } finally { red.release(); blue.release() }
     }
 
     private fun colour(ray: Direction) = doubleArrayOf((ray.x + 1) * 127.5, (ray.y + 1) * 127.5, (ray.z + 1) * 127.5)

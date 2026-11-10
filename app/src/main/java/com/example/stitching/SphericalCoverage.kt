@@ -30,6 +30,8 @@ class SphericalCoverage(val width: Int = 180, val height: Int = 90) {
         require(width > 0 && height > 0)
     }
 
+    fun copy(): SphericalCoverage = SphericalCoverage(width, height).also { covered.copyInto(it.covered) }
+
     fun add(pose: CameraPose, intrinsics: CameraIntrinsics) {
         // Reserve edges for overlap. The final rendered report uses the actual per-pixel mask.
         val margin = minOf(intrinsics.width, intrinsics.height) * 0.06

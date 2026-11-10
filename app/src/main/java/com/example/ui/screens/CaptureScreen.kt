@@ -31,26 +31,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import coil.compose.AsyncImage
 import com.example.model.IsoMode
 import com.example.model.ProjectionMode
 import com.example.model.StitchingEngine
 import com.example.ui.components.ExposureDialog
-import com.example.ui.components.HorizonGuide
+import com.example.ui.components.CaptureTargetGuide
+import com.example.capture.CaptureTarget
+import com.example.stitching.CameraIntrinsics
+import com.example.stitching.CameraPose
 import com.example.ui.components.ImmersiveAtmosphereBackground
-import com.example.ui.components.QuickSettingsPills
 import com.example.ui.components.SettingsDialog
 import com.example.ui.components.ShutterControls
 import com.example.ui.components.SphereCoverageGrid
@@ -92,6 +95,12 @@ fun CaptureScreen(
     deviceAzimuth: Float = 0f,
     onFinishCapture: () -> Unit = {},
     onResetCapture: () -> Unit = {},
+    isAutoCapturing: Boolean = false,
+    captureTarget: CaptureTarget? = null,
+    previewIntrinsics: CameraIntrinsics? = null,
+    cameraPose: CameraPose? = null,
+    holdProgress: Float = 0f,
+    onCaptureActive: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -111,7 +120,7 @@ fun CaptureScreen(
         }
     }
 
-    val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+    val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER } }
 
     LaunchedEffect(permissionGranted) {
         if (permissionGranted) {
@@ -121,6 +130,24 @@ fun CaptureScreen(
 
     DisposableEffect(Unit) {
         onDispose { onCameraDispose() }
+    }
+
+    val activeCallback by rememberUpdatedState(onCaptureActive)
+    DisposableEffect(lifecycleOwner, showSettingsDialog, showExposureDialog, permissionGranted) {
+        fun updateActive() = activeCallback(permissionGranted && !showSettingsDialog && !showExposureDialog &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        val observer = LifecycleEventObserver { _, _ -> updateActive() }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        updateActive()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            activeCallback(false)
+        }
+    }
+
+    DisposableEffect(previewView) {
+        previewView.keepScreenOn = true
+        onDispose { previewView.keepScreenOn = false }
     }
 
     Box(
@@ -246,17 +273,13 @@ fun CaptureScreen(
                 text = captureStatusText,
                 color = ImmersiveLilac,
                 style = Typography.bodyMedium,
-                fontSize = 14.sp
+                fontSize = 14.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp)
             )
         }
 
-        // Horizon Guide & Level Indicator
-        HorizonGuide(
-            rollOffset = deviceRoll,
-            pitchOffset = devicePitch,
-            instructionText = "Azimut %.0f° · elevación %+.0f°".format(deviceAzimuth, devicePitch),
-            modifier = Modifier.align(Alignment.Center)
-        )
+        CaptureTargetGuide(cameraPose, captureTarget, previewIntrinsics, holdProgress)
 
         // Bottom Controls Area (Thumb-Zone)
         Column(
@@ -283,14 +306,20 @@ fun CaptureScreen(
                 ) { Text(if (isSphereComplete) "Ver panorama" else "Ver panorama parcial") }
             }
 
-            QuickSettingsPills(
-                evValue = evValue,
-                isHdr = isHdr,
-                isoMode = isoMode,
-                onEvClick = { showExposureDialog = true },
-                onHdrToggle = onHdrToggle,
-                onIsoClick = onIsoCycle,
-                modifier = Modifier.padding(bottom = 16.dp)
+            TextButton(onClick = { showExposureDialog = true }, enabled = !isCapturing) {
+                Text("Exposición %+.1f EV · enfoque automático".format(evValue))
+            }
+            Text(
+                text = "Mantén la cámara en el mismo punto al girar",
+                color = Secondary,
+                style = Typography.bodySmall,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            Text(
+                text = if (isAutoCapturing) "Pausar" else if (currentSlice > 0) "Reanudar" else "Iniciar",
+                color = ImmersiveLilac,
+                style = Typography.labelLarge,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
 
             ShutterControls(
@@ -300,7 +329,8 @@ fun CaptureScreen(
                 isSphereComplete = isSphereComplete,
                 onThumbnailClick = onGalleryClick,
                 onShutterClick = onShutterClick,
-                isCapturing = isCapturing
+                isCapturing = isCapturing,
+                isAutoCapturing = isAutoCapturing
             )
         }
 

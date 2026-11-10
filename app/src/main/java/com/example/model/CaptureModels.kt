@@ -26,7 +26,7 @@ enum class IsoMode(val label: String) {
 }
 
 enum class StitchingEngine(val label: String, val subtitle: String) {
-    OPENCV("OpenCV · Esfera", "Proyección por orientación y óptica de cada foto, con fusión suave"),
+    OPENCV("OpenCV · Esfera", "Alineación visual 3D, exposición uniforme y proyección esférica"),
     NEURAL_AI("Neural AI Synthesis", "Deep generative seam fill & HDR relighting"),
     FAST_CYLINDRICAL("Fast Cylindrical", "Low latency real-time projection")
 }

@@ -17,7 +17,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Panorama
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,6 +51,7 @@ fun ShutterControls(
     onThumbnailClick: () -> Unit,
     onShutterClick: () -> Unit,
     isCapturing: Boolean = false,
+    isAutoCapturing: Boolean = false,
     modifier: Modifier = Modifier
 ) {
 
@@ -106,7 +108,7 @@ fun ShutterControls(
                     .size(80.dp)
                     .clip(CircleShape)
                     .background(SurfaceContainer)
-                    .clickable(enabled = !isCapturing, onClick = onShutterClick)
+                    .clickable(onClick = onShutterClick)
                     .testTag("shutter_capture_button"),
                 contentAlignment = Alignment.Center
             ) {
@@ -135,8 +137,8 @@ fun ShutterControls(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Panorama,
-                        contentDescription = if (isCapturing) "Capturando" else "Tomar fotografía",
+                        imageVector = if (isAutoCapturing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isAutoCapturing) "Pausar captura" else "Iniciar o reanudar captura automática",
                         tint = ImmersiveDeepPurple,
                         modifier = Modifier.size(28.dp)
                     )

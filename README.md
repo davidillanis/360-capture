@@ -1,28 +1,30 @@
 # 360Capture
 
-Aplicación Android nativa (Kotlin + Jetpack Compose) para capturar panoramas 360° × 180° con la cámara del celular. Primera etapa: captura manual guiada y proyección esférica verificable.
+Aplicación Android nativa (Kotlin + Jetpack Compose) para capturar panoramas 360° × 180° con la cámara del celular. Captura automática con puntos guía, alineación visual y proyección esférica.
 
 ## Cómo funciona
 
-1. **Captura manual**: cada pulsación toma una foto. CameraX registra la orientación del sensor en su callback de inicio de captura, antes de guardar el JPEG. Mantén el teléfono quieto durante el disparo.
+1. **Captura automática guiada**: el campo de visión de la cámara determina un recorrido solapado por el horizonte, bandas superiores e inferiores, cenit y nadir. La foto se dispara al centrar el objetivo (±3°), enderezar el teléfono y permanecer estable durante 850 ms. Se comprueba también el movimiento durante el enfoque/disparo; una toma movida se descarta y el objetivo sigue pendiente. Se puede pausar y reanudar, y la captura se pausa al salir de la pantalla, abrir ajustes o enviar la app al fondo.
 2. **Geometría de cada foto**: se utiliza el eje óptico de la cámara trasera, la rotación de pantalla, la orientación EXIF, la distancia focal y las dimensiones del sensor activo. El campo de visión no se fija a 67°.
-3. **Proyección equirectangular**: OpenCV proyecta los rayos de cada foto directamente sobre un lienzo de **2048 × 1024**, con rotación 3D completa y fusión ponderada de bordes. La longitud envuelve correctamente 0°/360° y ±180°. No se recorta ni estira una panorámica plana para simular una esfera.
+3. **Alineación y proyección**: ORB busca coincidencias entre imágenes solapadas, incluidas las del cierre de la vuelta y distintas elevaciones. RANSAC rechaza coincidencias falsas y un ajuste global refina las rotaciones 3D con una referencia de sensor. Se equilibran brillo/color con muestras de los mismos rayos en los solapamientos. OpenCV proyecta las fotos sobre un lienzo **3072 × 1536**, conservando como máximo dos fuentes por píxel y mezclando solo una franja estrecha; los desacuerdos de alto contraste mantienen una sola fuente. La longitud envuelve correctamente 0°/360° y ±180°. No se estira una panorámica plana para simular una esfera.
 4. **Cobertura**: durante la captura se estima la superficie fotografiada mediante rayos de la esfera, reservando margen para solapamiento. La rejilla de 24 zonas es un indicador, no una obligación de tomar 24 fotos. El resultado comprueba cada píxel y señala huecos, cenit y nadir; los huecos permanecen negros.
 5. **Visor y galería**: arrastra o gira el teléfono para explorar el resultado. Se puede guardar el JPEG y su informe de cobertura en la galería interna, compartirlo o borrarlo.
+6. **Calidad de cámara**: modo CameraX de máxima calidad, JPEG 98, flash desactivado y enfoque/medición antes de cada foto. El balance de blancos se bloquea tras el enfoque inicial si el dispositivo lo admite; la exposición permanece automática para adaptarse al techo y suelo. El control EV usa el rango y paso reales de la cámara. La orientación de pantalla queda fija hasta reiniciar la sesión; la vista previa ajustada conserva la geometría del punto guía.
 
 ## Tecnologías
 
 - Kotlin + Jetpack Compose (Material 3)
 - CameraX (preview + captura)
-- OpenCV 4.10.0 (`org.opencv:opencv`) — remap y fusión por bloques
+- OpenCV 4.10.0 (`org.opencv:opencv`) — ORB, correspondencias y remap por bloques
 - OpenGL ES 2.0 para el visor de esfera 360°
-- Sensores: rotation vector / game rotation vector. Un acelerómetro por sí solo no determina el rumbo.
+- Sensores: se prefiere game rotation vector para evitar saltos magnéticos en interiores, con rotation vector como alternativa. Un acelerómetro por sí solo no determina el rumbo.
 
 ## Estructura
 
 ```
 app/src/main/java/com/example/
 ├── camera/          # CameraController (captura, óptica y orientación al disparar)
+├── capture/         # Planificador, control de estabilidad y geometría persistida por foto
 ├── sensor/          # Orientación 3D de la cámara trasera
 ├── stitching/       # SphericalGeometry, SphericalCoverage, EquirectangularStitcher, PanoramaStitcher
 ├── viewer/          # Visor equirectangular OpenGL
@@ -49,12 +51,19 @@ La configuración de depuración utiliza `debug.keystore` en la raíz del proyec
 ## Uso
 
 1. Acepta el permiso de cámara.
-2. Apunta al horizonte, mantén el teléfono quieto y pulsa el obturador.
-3. Sigue el azimut y la elevación sugeridos. Haz fotos solapadas alrededor, hacia arriba y hacia abajo. Intenta rotar alrededor de la cámara, evitando desplazarla.
+2. Apunta al horizonte y pulsa **Iniciar**. Lleva el punto amarillo al círculo central y mantén el teléfono quieto hasta que termine la foto. El círculo verde indica el tiempo de estabilidad.
+3. Sigue todos los puntos: vuelta horizontal, techo y suelo, incluyendo justo arriba y abajo. **Mantén la cámara en el mismo lugar mientras giras**: desplazarla produce paralaje, especialmente con muebles cercanos. Si puedes, usa un soporte que gire alrededor de la lente. Evita personas u objetos en movimiento.
 4. Consulta el porcentaje de cobertura y las zonas de la rejilla. Repetir la misma dirección no completa la esfera.
 5. Pulsa **Ver panorama parcial** en cualquier momento, o **Ver panorama** cuando la estimación esté completa.
 6. Revisa los huecos negros y el informe de cobertura. La flecha de volver conserva las tomas para añadir fotos y procesar otra vez. **Reiniciar** o **Retomar** comienza una sesión nueva.
 7. **Guardar en Galería** conserva el resultado y su cobertura en la galería interna.
+8. El botón central permite **Pausar / Reanudar**. Al volver del fondo o de ajustes hay que reanudar explícitamente. Si el enfoque falla, mejora la luz o apunta a un detalle cercano al objetivo y vuelve a intentarlo.
+
+## Diagnóstico de capturas
+
+Los originales nuevos se guardan en `cache/captures/<uuid>/slice_*.jpg`. Cada JPEG tiene un `.json` con la base 3D de la cámara, intrínsecos, fecha y objetivo de captura. `CaptureSessionStore.read` permite recuperar esa geometría para reproducir la unión. Cada resultado en `cache/session/<uuid>/` incluye `alignment.json` con las rutas de los originales, poses corregidas, ganancias y número de parejas aceptadas. No se leen fotos ajenas a la app.
+
+El visor del resultado informa cuántas fotos tienen apoyo visual. Si faltan detalles o las coincidencias no son fiables, esas fotos conservan su orientación de sensor. La cobertura se recalcula tras el ajuste y, al volver a la captura, se pueden completar los huecos pendientes.
 
 ## Compartir por WhatsApp
 
@@ -76,15 +85,16 @@ La preparación se realiza localmente. Los documentos temporales con más de sie
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-- Pruebas JVM: cambios de orientación, eje óptico, rotación de pantalla, focal/crop, cruce de longitudes, polos, cobertura, persistencia del informe y matrices del visor.
+- Pruebas JVM: geometría, cobertura de planes con tolerancia de apuntado y diferentes ópticas, bloqueo del disparo ante movimiento/roll/interrupciones del sensor, ajuste robusto con coincidencias falsas, cierre global, exposición, persistencia de geometría y matrices del visor.
 - Compartición: validación del XMP, comparación del JPEG comprimido antes/después de exportar, permisos de lectura de la URI, MIME de documento y selección de WhatsApp/WhatsApp Business.
-- Pruebas instrumentadas: OpenCV nativo reconstruye una esfera de colores conocida a partir de seis fotos sintéticas; comprueba también fotos inclinadas, brillo, ausencia de contaminación fuera de la máscara y el pipeline JPEG → equirectangular.
+- Pruebas instrumentadas: reconstrucción de una esfera conocida, máscara de cobertura, transiciones sin promediar objetos incompatibles y pipeline JPEG → equirectangular. Un conjunto JPEG sintético texturizado introduce errores de sensor y exposición para medir el ajuste visual, incluyendo cierre de vuelta y polos; otro verifica el caso sin textura.
 - Para validar en un teléfono real: fotografía una escena estática con líneas rectas y referencias reconocibles alrededor, en el techo y en el suelo. Comprueba el horizonte, la unión al volver al inicio y ambas regiones polares. Una captura limitada al horizonte debe quedar marcada como incompleta.
 
 ## Limitaciones del MVP
 
 - La cobertura es geométrica: no mide nitidez, exposición ni calidad visual de las uniones.
-- El alineamiento depende de los sensores y de una aproximación pinhole con recorte centrado. Quedan por calibrar la distorsión de lente y las particularidades de cada dispositivo; los errores de rumbo, el movimiento y el paralaje pueden producir dobles bordes.
-- La fusión suaviza los bordes; todavía no hay refinamiento por características, compensación de exposición ni cierre global del bucle. `FeatureStitcher` se conserva como código experimental y no participa en esta etapa.
-- La captura automática y el zoom del visor quedan para etapas posteriores. Los controles de HDR y exposición/ISO aún requieren completar su integración; no hay síntesis por IA.
+- La alineación visual presupone una escena estática y rotación alrededor de la cámara. No corrige por completo el paralaje, la distorsión de lente ni errores grandes de calibración. No puede recuperar zonas nunca fotografiadas, detalle quemado o desenfoque óptico. La estabilidad se mide con sensores; no es un análisis de nitidez de la foto.
+- Las paredes lisas, reflejos y patrones repetidos pueden no ofrecer coincidencias fiables. Se limita la corrección y se conserva el sensor cuando falla el ajuste. `FeatureStitcher` sigue siendo código planar experimental y no participa en este pipeline.
+- No hay HDR por múltiples exposiciones, ISO manual, zoom del visor ni síntesis por IA. La pantalla muestra únicamente el ajuste EV funcional.
 - Las tomas de una sesión están en caché y aún no se recuperan tras cerrar el proceso.
+- Las pruebas sintéticas no sustituyen una captura real: la calidad de las uniones debe verificarse en el teléfono objetivo con los originales de una sesión.

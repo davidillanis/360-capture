@@ -11,12 +11,12 @@ import org.opencv.core.Mat
 import java.io.File
 
 data class SliceSource(val file: File, val pose: CameraPose, val intrinsics: CameraIntrinsics)
-data class PanoramaResult(val bitmap: Bitmap, val coverage: CoverageSummary)
+data class PanoramaResult(val bitmap: Bitmap, val coverage: CoverageSummary, val alignment: AlignmentResult)
 
 /** Builds an actual spherical image directly on a 2:1 canvas, without cropping or stretching. */
 object PanoramaStitcher {
-    private const val STITCH_MAX_DIM = 1440
-    private const val EQUIRECT_HEIGHT = 1024
+    private const val STITCH_MAX_DIM = 1920
+    private const val EQUIRECT_HEIGHT = 1536
     private const val TAG = "PanoramaStitcher"
     private var initialized = false
 
@@ -40,17 +40,20 @@ object PanoramaStitcher {
         if (slices.isEmpty() || !ensureOpenCV()) return null
         val context = currentCoroutineContext()
         try {
+            val alignment = VisualAlignment.refine(slices, { context.ensureActive() }) { progress, text ->
+                onProgress(progress * 0.45f, text)
+            }
             EquirectangularStitcher(EQUIRECT_HEIGHT).use { stitcher ->
                 for ((index, slice) in slices.withIndex()) {
                     context.ensureActive()
-                    onProgress(index.toFloat() / slices.size * 0.9f, "Proyectando foto ${index + 1}/${slices.size} en la esfera...")
+                    onProgress(0.45f + index.toFloat() / slices.size * 0.45f, "Proyectando foto ${index + 1}/${slices.size} en la esfera...")
                     val decoded = ImageUtils.decodeUpright(slice.file, STITCH_MAX_DIM)
                     var scaled: Bitmap? = null
                     val mat = Mat()
                     try {
                         scaled = ImageUtils.scaleDown(decoded, STITCH_MAX_DIM)
                         Utils.bitmapToMat(scaled, mat)
-                        stitcher.add(mat, slice.pose, slice.intrinsics.scaledTo(mat.cols(), mat.rows())) {
+                        stitcher.add(mat, alignment.poses[index], slice.intrinsics.scaledTo(mat.cols(), mat.rows()), alignment.gains[index]) {
                             context.ensureActive()
                         }
                     } finally {
@@ -65,7 +68,7 @@ object PanoramaStitcher {
                     val bitmap = Bitmap.createBitmap(result.image.cols(), result.image.rows(), Bitmap.Config.ARGB_8888)
                     try {
                         Utils.matToBitmap(result.image, bitmap)
-                        return PanoramaResult(bitmap, result.coverage)
+                        return PanoramaResult(bitmap, result.coverage, alignment)
                     } catch (error: Throwable) {
                         bitmap.recycle()
                         throw error
